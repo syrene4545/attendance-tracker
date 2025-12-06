@@ -1,0 +1,145 @@
+import express from 'express';
+import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
+import { pool } from '../index.js';
+import { authenticateToken, checkPermission } from '../middleware/permissionMiddleware.js';
+
+const router = express.Router();
+
+// ==================== AUTH ROUTES ====================
+
+// Login
+router.post('/login', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    // ✅ Debug: log the incoming email
+    // console.log("LOGIN EMAIL:", email);
+
+    const result = await pool.query(
+      'SELECT * FROM users WHERE email = $1',
+      [email]
+    );
+
+    // ✅ Debug: log what the DB returned
+    // console.log("DB USER:", result.rows);
+
+    if (result.rows.length === 0) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    const user = result.rows[0];
+
+     // ✅ Debug: log the hash and compare result
+    // console.log("HASH FROM DB:", user.password_hash);
+
+    const validPassword = await bcrypt.compare(password, user.password_hash);
+
+    // console.log("PASSWORD MATCH:", validPassword);
+
+    if (!validPassword) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    const token = jwt.sign(
+      { id: user.id, email: user.email, role: user.role },
+      process.env.JWT_SECRET,
+      { expiresIn: process.env.JWT_EXPIRES_IN || '24h' }
+    );
+
+    // console.log('GENERATED TOKEN:', token); // ✅ ADD THIS LINE
+    // console.log('JWT_SECRET exists:', !!process.env.JWT_SECRET); // ✅ ADD THIS LINE
+
+    res.json({
+      token,
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+        department: user.department,
+      },
+    });
+  } catch (error) {
+    console.error('Login error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Register (Admin only)
+router.post(
+  '/register',
+  authenticateToken,
+  checkPermission('manage_users'),
+  async (req, res) => {
+    try {
+      const { email, password, name, role, department } = req.body;
+
+      // Check if user exists
+      const existingUser = await pool.query(
+        'SELECT * FROM users WHERE email = $1',
+        [email]
+      );
+
+      if (existingUser.rows.length > 0) {
+        return res.status(400).json({ error: 'User already exists' });
+      }
+
+      // Hash password
+      const passwordHash = await bcrypt.hash(password, 10);
+
+      // Insert user
+      const result = await pool.query(
+        'INSERT INTO users (email, password_hash, name, role, department) VALUES ($1, $2, $3, $4, $5) RETURNING id, email, name, role, department',
+        [email, passwordHash, name, role, department]
+      );
+
+      res.status(201).json({ user: result.rows[0] });
+    } catch (error) {
+      console.error('Register error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+);
+
+// ==================== RESET USER PASSWORD (ADMIN ONLY) ====================
+router.put(
+  '/reset-password/:id',
+  authenticateToken,
+  checkPermission('manage_users'),
+  async (req, res) => {
+    try {
+      const userId = req.params.id;
+      const { newPassword } = req.body;
+
+      if (!newPassword || newPassword.length < 6) {
+        return res.status(400).json({ error: 'New password must be at least 6 characters long.' });
+      }
+
+      // Hash new password
+      const passwordHash = await bcrypt.hash(newPassword, 10);
+
+      // Update DB
+      const result = await pool.query(
+        'UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2 RETURNING id, email, name, role',
+        [passwordHash, userId]
+      );
+
+      if (result.rows.length === 0) {
+        return res.status(404).json({ error: 'User not found.' });
+      }
+
+      res.json({
+        message: 'Password reset successful.',
+        user: result.rows[0],
+      });
+
+    } catch (error) {
+      console.error('Password reset error:', error);
+      res.status(500).json({ error: 'Internal server error.' });
+    }
+  }
+);
+
+
+export default router;
