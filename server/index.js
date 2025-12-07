@@ -24,7 +24,7 @@ app.use((req, res, next) => {
 const corsOptions = {
   origin: [
     'http://localhost:5173',
-    'https://attendance-tracker-app-jnxk.onrender.com', // ✅ Add your Render frontend URL
+    'https://attendance-tracker-api-pwrp.onrender.com', // ✅ Add your Render frontend URL
   ],
   credentials: true
 };
