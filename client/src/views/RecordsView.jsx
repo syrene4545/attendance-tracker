@@ -3,6 +3,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useAttendance } from '../contexts/AttendanceContext';
 import { useEmployees } from '../contexts/EmployeeContext';
 import { getEventLabel, getEventIcon, getEventColor } from '../utils/eventUtils';
+import { formatDate, formatTime, toDateTimeLocal, getCurrentDate } from '../utils/timezone'; // ✅ Import timezone utils
 import { Activity, MapPin, Filter, Download, Edit2, Calendar } from 'lucide-react';
 import api from '../api/api';
 
@@ -10,26 +11,15 @@ const RecordsView = () => {
   const { currentUser, checkPermission } = useAuth();
   const { attendanceLogs, updateLog } = useAttendance();
   const { employees } = useEmployees();
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const [selectedDate, setSelectedDate] = useState(getCurrentDate()); // ✅ Use timezone-aware date
   const [selectedEmployee, setSelectedEmployee] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [editingLog, setEditingLog] = useState(null);
 
-  // 🔍 DEBUG: Check permissions
-  // useEffect(() => {
-  //   console.log('=== RECORDS VIEW DEBUG ===');
-  //   console.log('Current User:', currentUser);
-  //   console.log('User Role:', currentUser?.role);
-  //   console.log('Can view_all?', checkPermission('view_all'));
-  //   console.log('Can export_data?', checkPermission('export_data'));
-  //   console.log('Can edit_all?', checkPermission('edit_all'));
-  //   console.log('============================');
-  // }, [currentUser, checkPermission]);
-
   // Filter logs
   const filterLogs = () => {
     return attendanceLogs.filter(log => {
-      const logDate = log.timestamp ? log.timestamp.split('T')[0] : '';
+      const logDate = log.timestamp ? formatDate(log.timestamp) : ''; // ✅ Use timezone formatter
       const dateMatch = !selectedDate || logDate === selectedDate;
       const employeeMatch = selectedEmployee === 'all' || log.userId === parseInt(selectedEmployee);
       const searchMatch = !searchTerm || log.userName.toLowerCase().includes(searchTerm.toLowerCase());
@@ -38,9 +28,9 @@ const RecordsView = () => {
     });
   };
 
-  // ✅ CSV Export
+  // CSV Export
   const exportToCSV = async () => {
-    // console.log('🔵 Export CSV button clicked');
+    console.log('🔵 Export CSV button clicked');
     try {
       const response = await api.get('/export/csv', {
         params: { 
@@ -59,14 +49,14 @@ const RecordsView = () => {
       link.remove();
       window.URL.revokeObjectURL(url);
       
-      // console.log('✅ CSV exported successfully');
+      console.log('✅ CSV exported successfully');
     } catch (error) {
       console.error('❌ Export failed:', error);
       alert('Failed to export CSV. Please try again.');
     }
   };
 
-  // ✅ Edit Log
+  // Edit Log
   const saveEdit = async () => {
     if (!editingLog) return;
     
@@ -76,7 +66,7 @@ const RecordsView = () => {
         timestamp: editingLog.timestamp
       });
       setEditingLog(null);
-      // console.log('✅ Attendance updated successfully');
+      console.log('✅ Attendance updated successfully');
     } catch (error) {
       console.error('❌ Update failed:', error);
       alert('Failed to update attendance. Please try again.');
@@ -85,7 +75,6 @@ const RecordsView = () => {
 
   const filteredLogs = filterLogs();
   const canExport = checkPermission('export_data');
-  // console.log('🔵 Render check - Can export?', canExport);
 
   return (
     <div className="p-6 space-y-6">
@@ -123,9 +112,8 @@ const RecordsView = () => {
                 </select>
               </div>
 
-              {/* 🔍 DEBUG VERSION - Shows button state */}
-              <div className="self-end">
-                {canExport ? (
+              {canExport && (
+                <div className="self-end">
                   <button
                     onClick={exportToCSV}
                     className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
@@ -133,12 +121,8 @@ const RecordsView = () => {
                     <Download className="w-4 h-4" />
                     <span>Export CSV</span>
                   </button>
-                ) : (
-                  <div className="px-4 py-2 bg-red-200 text-red-800 rounded-lg text-sm">
-                    🔒 No Export Permission
-                  </div>
-                )}
-              </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -188,7 +172,7 @@ const RecordsView = () => {
               ) : (
                 filteredLogs.map(log => (
                   <tr key={log.id} className="border-b border-gray-100 hover:bg-gray-50">
-                    <td className="py-3 px-4">{log.timestamp?.split('T')[0]}</td>
+                    <td className="py-3 px-4">{formatDate(log.timestamp)}</td>
                     {checkPermission('view_all') && (
                       <td className="py-3 px-4">{log.userName}</td>
                     )}
@@ -198,7 +182,7 @@ const RecordsView = () => {
                         <span>{getEventLabel(log.type)}</span>
                       </span>
                     </td>
-                    <td className="py-3 px-4">{new Date(log.timestamp).toLocaleTimeString()}</td>
+                    <td className="py-3 px-4">{formatTime(log.timestamp)}</td>
                     <td className="py-3 px-4">
                       {log.location ? (
                         <div className="flex items-center space-x-1 text-sm">
@@ -234,7 +218,7 @@ const RecordsView = () => {
         </div>
       </div>
 
-      {/* ✅ Edit Modal */}
+      {/* Edit Modal */}
       {editingLog && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl p-6 w-full max-w-md">
@@ -259,7 +243,7 @@ const RecordsView = () => {
                 <label className="block text-sm font-medium text-gray-700 mb-1">Date & Time</label>
                 <input
                   type="datetime-local"
-                  value={editingLog.timestamp?.slice(0, 16)}
+                  value={toDateTimeLocal(editingLog.timestamp)} {/* ✅ Use timezone converter */}
                   onChange={(e) => setEditingLog({...editingLog, timestamp: e.target.value})}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
                 />
