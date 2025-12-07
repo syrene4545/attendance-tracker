@@ -1,8 +1,47 @@
 // server/routes/attendance.routes.js
+process.env.TZ = 'Africa/Harare';
 import express from 'express';
 import { pool } from '../index.js';
 import { authenticateToken, checkPermission } from '../middleware/permissionMiddleware.js';
 import { body, validationResult, query } from 'express-validator';
+
+// ✅ STEP 2: After creating the pool, add this event listener
+// This sets PostgreSQL session timezone for every connection
+
+export const pool = process.env.DATABASE_URL
+  ? new Pool({
+      connectionString: process.env.DATABASE_URL,
+      ssl: { rejectUnauthorized: false }
+    })
+  : new Pool({
+      user: process.env.DB_USER || 'postgres',
+      host: process.env.DB_HOST || 'localhost',
+      database: process.env.DB_NAME || 'attendance_db',
+      password: process.env.DB_PASSWORD || 'QweasD#123',
+      port: Number(process.env.DB_PORT) || 5432,
+    });
+
+// ✅ Set PostgreSQL session timezone for all connections
+pool.on('connect', (client) => {
+  client.query("SET timezone = 'Africa/Harare'", (err) => {
+    if (err) {
+      console.error('Failed to set timezone:', err);
+    }
+  });
+});
+
+// ✅ STEP 3: Update the pool.connect() section to show timezone info
+pool.connect()
+  .then(() => {
+    console.log('✅ DB Connected');
+    console.log('🌍 Server timezone:', process.env.TZ);
+    console.log('🕐 Current server time:', new Date().toLocaleString('en-ZA', { 
+      timeZone: 'Africa/Harare',
+      dateStyle: 'full',
+      timeStyle: 'long'
+    }));
+  })
+  .catch((err) => console.error('❌ DB Error', err));
 
 const router = express.Router();
 
@@ -22,7 +61,7 @@ const formatLog = (logRow) => {
     userName: logRow.user_name || null,
     userEmail: logRow.user_email || null,
     type: logRow.type,
-    timestamp: logRow.timestamp,
+    timestamp: logRow.timestamp, // ✅ Already converted by AT TIME ZONE in query
     date: logRow.timestamp ? new Date(logRow.timestamp).toISOString().split('T')[0] : null,
     location,
     edited: logRow.edited || false,
@@ -53,9 +92,14 @@ router.post(
         return res.status(400).json({ error: `Invalid event type. Allowed: ${allowedTypes.join(', ')}` });
       }
 
+      // ✅ Check for duplicates using Africa/Harare timezone
       const today = new Date().toISOString().split('T')[0];
       const dupCheck = await pool.query(
-        `SELECT 1 FROM attendance_logs WHERE user_id = $1 AND DATE(timestamp) = $2 AND type = $3 LIMIT 1`,
+        `SELECT 1 FROM attendance_logs 
+         WHERE user_id = $1 
+           AND DATE(timestamp AT TIME ZONE 'Africa/Harare') = $2 
+           AND type = $3 
+         LIMIT 1`,
         [userId, today, type]
       );
 
@@ -72,16 +116,29 @@ router.post(
         }
       }
 
+      // ✅ Insert with Africa/Harare timezone
       const insertResult = await pool.query(
         `INSERT INTO attendance_logs (user_id, type, timestamp, location, edited)
-         VALUES ($1, $2, NOW(), $3, false)
+         VALUES ($1, $2, timezone('Africa/Harare', NOW()), $3, false)
          RETURNING id`,
         [userId, type, locationToStore]
       );
 
       const createdId = insertResult.rows[0].id;
+      
+      // ✅ Fetch with timezone conversion
       const refreshed = await pool.query(
-        `SELECT a.*, u.name as user_name, u.email as user_email
+        `SELECT 
+           a.id,
+           a.user_id,
+           a.type,
+           a.timestamp AT TIME ZONE 'Africa/Harare' as timestamp,
+           a.location,
+           a.edited,
+           a.edited_by,
+           a.edited_at AT TIME ZONE 'Africa/Harare' as edited_at,
+           u.name as user_name,
+           u.email as user_email
          FROM attendance_logs a
          JOIN users u ON a.user_id = u.id
          WHERE a.id = $1`,
@@ -111,8 +168,20 @@ router.get(
       }
 
       const { startDate, endDate, userId } = req.query;
+      
+      // ✅ Query with timezone conversion
       let queryText = `
-        SELECT a.*, u.name as user_name, u.email as user_email
+        SELECT 
+          a.id,
+          a.user_id,
+          a.type,
+          a.timestamp AT TIME ZONE 'Africa/Harare' as timestamp,
+          a.location,
+          a.edited,
+          a.edited_by,
+          a.edited_at AT TIME ZONE 'Africa/Harare' as edited_at,
+          u.name as user_name,
+          u.email as user_email
         FROM attendance_logs a
         JOIN users u ON a.user_id = u.id
         WHERE 1=1
@@ -138,16 +207,14 @@ router.get(
       }
 
       if (startDate) {
-        queryText += ` AND a.timestamp >= $${idx}`;
-        params.push(new Date(startDate).toISOString());
+        queryText += ` AND (a.timestamp AT TIME ZONE 'Africa/Harare')::date >= $${idx}::date`;
+        params.push(startDate);
         idx++;
       }
 
       if (endDate) {
-        const end = new Date(endDate);
-        end.setHours(23, 59, 59, 999);
-        queryText += ` AND a.timestamp <= $${idx}`;
-        params.push(end.toISOString());
+        queryText += ` AND (a.timestamp AT TIME ZONE 'Africa/Harare')::date <= $${idx}::date`;
+        params.push(endDate);
         idx++;
       }
 
@@ -169,7 +236,17 @@ router.get('/me', authenticateToken, async (req, res) => {
     const userId = req.user.id;
 
     const result = await pool.query(
-      `SELECT a.*, u.name as user_name, u.email as user_email
+      `SELECT 
+         a.id,
+         a.user_id,
+         a.type,
+         a.timestamp AT TIME ZONE 'Africa/Harare' as timestamp,
+         a.location,
+         a.edited,
+         a.edited_by,
+         a.edited_at AT TIME ZONE 'Africa/Harare' as edited_at,
+         u.name as user_name,
+         u.email as user_email
        FROM attendance_logs a
        JOIN users u ON a.user_id = u.id
        WHERE a.user_id = $1
@@ -189,18 +266,21 @@ router.get('/me', authenticateToken, async (req, res) => {
 router.get('/summary', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.id;
-    const today = new Date();
-    const startOfWeek = new Date(today);
-    startOfWeek.setDate(today.getDate() - today.getDay());
-    startOfWeek.setHours(0, 0, 0, 0);
 
+    // ✅ Use Africa/Harare timezone for week calculations
     const result = await pool.query(
-      `SELECT a.*, u.name as user_name
+      `SELECT 
+         a.id,
+         a.user_id,
+         a.type,
+         a.timestamp AT TIME ZONE 'Africa/Harare' as timestamp,
+         u.name as user_name
        FROM attendance_logs a
        JOIN users u ON a.user_id = u.id
-       WHERE a.user_id = $1 AND DATE(a.timestamp) >= $2
+       WHERE a.user_id = $1 
+         AND (a.timestamp AT TIME ZONE 'Africa/Harare')::date >= date_trunc('week', (now() AT TIME ZONE 'Africa/Harare')::date)::date
        ORDER BY a.timestamp ASC`,
-      [userId, startOfWeek.toISOString().split('T')[0]]
+      [userId]
     );
 
     const logs = result.rows.map(formatLog);
@@ -242,16 +322,21 @@ router.get('/summary', authenticateToken, async (req, res) => {
 router.get('/summary/month', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.id;
-    const today = new Date();
-    const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
 
+    // ✅ Use Africa/Harare timezone for month calculations
     const result = await pool.query(
-      `SELECT a.*, u.name as user_name
+      `SELECT 
+         a.id,
+         a.user_id,
+         a.type,
+         a.timestamp AT TIME ZONE 'Africa/Harare' as timestamp,
+         u.name as user_name
        FROM attendance_logs a
        JOIN users u ON a.user_id = u.id
-       WHERE a.user_id = $1 AND DATE(a.timestamp) >= $2
+       WHERE a.user_id = $1 
+         AND (a.timestamp AT TIME ZONE 'Africa/Harare')::date >= date_trunc('month', (now() AT TIME ZONE 'Africa/Harare')::date)::date
        ORDER BY a.timestamp ASC`,
-      [userId, startOfMonth.toISOString().split('T')[0]]
+      [userId]
     );
 
     const logs = result.rows.map(formatLog);
@@ -312,8 +397,9 @@ router.put(
       }
 
       if (timestamp) {
-        updates.push(`timestamp = $${idx}`);
-        params.push(new Date(timestamp).toISOString());
+        // ✅ Convert timestamp to Africa/Harare timezone
+        updates.push(`timestamp = ($${idx}::timestamp AT TIME ZONE 'Africa/Harare')`);
+        params.push(timestamp);
         idx++;
       }
 
@@ -335,9 +421,9 @@ router.put(
       updates.push(`edited_by = $${idx}`);
       params.push(req.user.id);
       idx++;
-      updates.push(`edited_at = NOW()`);
+      updates.push(`edited_at = timezone('Africa/Harare', NOW())`);
 
-      if (updates.length === 3) { // only the default ones
+      if (updates.length === 3) {
         return res.status(400).json({ error: 'No valid fields to update' });
       }
 
@@ -356,8 +442,19 @@ router.put(
         return res.status(404).json({ error: 'Log not found' });
       }
 
+      // ✅ Fetch updated record with timezone conversion
       const refreshed = await pool.query(
-        `SELECT a.*, u.name as user_name, u.email as user_email
+        `SELECT 
+           a.id,
+           a.user_id,
+           a.type,
+           a.timestamp AT TIME ZONE 'Africa/Harare' as timestamp,
+           a.location,
+           a.edited,
+           a.edited_by,
+           a.edited_at AT TIME ZONE 'Africa/Harare' as edited_at,
+           u.name as user_name,
+           u.email as user_email
          FROM attendance_logs a
          JOIN users u ON a.user_id = u.id
          WHERE a.id = $1`,
