@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { AttendanceContext } from './AttendanceContext';
-import { useAuth } from './AuthContext'; // bring in JWT token
+import { useAuth } from './AuthContext';
+import api from '../api/api'; // ✅ Import centralized api
 
 export const AttendanceProvider = ({ children }) => {
   const [attendanceLogs, setAttendanceLogs] = useState([]);
@@ -25,17 +26,8 @@ export const AttendanceProvider = ({ children }) => {
   // Load logs from backend
   const loadAttendanceLogs = async () => {
     try {
-      const res = await fetch('/api/attendance', {
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-      });
-      if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.error || 'Failed to fetch attendance logs');
-      }
-      const data = await res.json();
+      const res = await api.get('/attendance'); // ✅ Using api instance
+      const data = res.data;
       const sorted = (data.logs || []).sort(
         (a, b) => new Date(b.timestamp) - new Date(a.timestamp)
       );
@@ -51,7 +43,7 @@ export const AttendanceProvider = ({ children }) => {
   }, [token]);
 
   // Record a new attendance event
-  const recordEvent = async ( type) => {
+  const recordEvent = async (type) => {
     let location = null;
     if (navigator.geolocation) {
       try {
@@ -68,18 +60,7 @@ export const AttendanceProvider = ({ children }) => {
     }
 
     try {
-      const res = await fetch('/api/attendance', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify({ type, location }),
-      });
-      if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.error || 'Failed to record event');
-      }
+      await api.post('/attendance', { type, location }); // ✅ Using api instance
       await loadAttendanceLogs();
       addNotification(`${type} recorded successfully`, 'success');
     } catch (err) {
@@ -91,18 +72,7 @@ export const AttendanceProvider = ({ children }) => {
   // Update an existing log
   const updateLog = async (logId, updates) => {
     try {
-      const res = await fetch(`/api/attendance/${logId}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify(updates),
-      });
-      if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.error || 'Failed to update log');
-      }
+      await api.put(`/attendance/${logId}`, updates); // ✅ Using api instance
       await loadAttendanceLogs();
       addNotification('Log updated successfully', 'success');
     } catch (err) {

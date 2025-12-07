@@ -1,12 +1,12 @@
 import { createContext, useState, useEffect, useContext } from 'react';
-import { useAuth } from './AuthContext'; // ✅ Import useAuth to get token
+import { useAuth } from './AuthContext';
+import api from '../api/api'; // ✅ Import centralized api
 
 export const UserContext = createContext(null);
 
 export const UserProvider = ({ children }) => {
   const [users, setUsers] = useState([]);
   const [notifications, setNotifications] = useState([]);
-  // const { token } = useAuth(); // ✅ Get token from AuthContext
   const { token, currentUser } = useAuth();
 
   // Notifications
@@ -25,30 +25,18 @@ export const UserProvider = ({ children }) => {
   };
 
   // Load all users (Admin/HR only)
-  // Load all users (Admin/HR only)
   const loadUsers = async () => {
     if (!token) return;
     
-    // ✅ Check permission before making request
+    // Check permission before making request
     if (currentUser?.role !== 'admin' && currentUser?.role !== 'hr') {
       console.log('User does not have view_all permission');
       return;
     }
     
     try {
-      const res = await fetch('/api/users', {
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-      });
-      
-      if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.error || 'Failed to fetch users');
-      }
-      
-      const data = await res.json();
+      const res = await api.get('/users'); // ✅ Using api instance
+      const data = res.data;
       setUsers(data.users || []);
     } catch (err) {
       console.error('Load users error:', err);
@@ -61,7 +49,7 @@ export const UserProvider = ({ children }) => {
 
   useEffect(() => {
     if (token && currentUser) {
-      // ✅ Only load for admin/hr
+      // Only load for admin/hr
       if (currentUser.role === 'admin' || currentUser.role === 'hr') {
         loadUsers();
       }
@@ -73,15 +61,8 @@ export const UserProvider = ({ children }) => {
     if (!token) return null;
     
     try {
-      const res = await fetch(`/api/users/${id}`, {
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`, // ✅ Add token
-        },
-      });
-      if (!res.ok) throw new Error('Failed to fetch user');
-      const data = await res.json();
-      return data.user;
+      const res = await api.get(`/users/${id}`); // ✅ Using api instance
+      return res.data.user;
     } catch (err) {
       console.error('Get user error:', err);
       addNotification('Failed to fetch user', 'error');
@@ -94,19 +75,10 @@ export const UserProvider = ({ children }) => {
     if (!token) return null;
     
     try {
-      const res = await fetch(`/api/users/${id}`, {
-        method: 'PUT',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`, // ✅ Add token
-        },
-        body: JSON.stringify(updates),
-      });
-      if (!res.ok) throw new Error('Failed to update user');
-      const data = await res.json();
+      const res = await api.put(`/users/${id}`, updates); // ✅ Using api instance
       await loadUsers();
       addNotification('User updated successfully', 'success');
-      return data.user;
+      return res.data.user;
     } catch (err) {
       console.error('Update user error:', err);
       addNotification('Failed to update user', 'error');
@@ -119,14 +91,7 @@ export const UserProvider = ({ children }) => {
     if (!token) return;
     
     try {
-      const res = await fetch(`/api/users/${id}`, {
-        method: 'DELETE',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`, // ✅ Add token
-        },
-      });
-      if (!res.ok) throw new Error('Failed to delete user');
+      await api.delete(`/users/${id}`); // ✅ Using api instance
       await loadUsers();
       addNotification('User deleted successfully', 'success');
     } catch (err) {
