@@ -243,7 +243,7 @@ const RecordsView = () => {
                 <label className="block text-sm font-medium text-gray-700 mb-1">Date & Time</label>
                 <input
                   type="datetime-local"
-                  value={toDateTimeLocal(editingLog.timestamp)} {/* ✅ Use timezone converter */}
+                  value={toDateTimeLocal(editingLog.timestamp)} /* ✅ Use timezone converter */
                   onChange={(e) => setEditingLog({...editingLog, timestamp: e.target.value})}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
                 />
