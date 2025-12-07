@@ -16,34 +16,30 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+// Request logging middleware
 app.use((req, res, next) => {
   console.log(`${req.method} ${req.url}`);
   next();
 });
 
-const corsOptions = {
-  origin: [
-    'http://localhost:5173',
-    'https://attendance-tracker-app-jnxk.onrender.com', // ✅ Add your Render frontend URL
-  ],
-  credentials: true
-};
+// ✅ CORS Configuration - Only ONE cors() call
+const allowedOrigins = [
+  'http://localhost:5173',
+  'https://attendance-tracker-app-jnxk.onrender.com',
+];
 
-// app.use(cors(corsOptions));
 app.use(cors({ 
   origin: allowedOrigins,
   credentials: true 
 }));
 
-// Middleware
-const allowedOrigins = (process.env.ALLOWED_ORIGINS || '').split(',').filter(Boolean);
-app.use(cors({ origin: allowedOrigins.length ? allowedOrigins : '*', credentials: true }));
+// Body parser middleware
 app.use(express.json());
 
-// PostgreSQL Connection
+// ==================== PostgreSQL Connection ====================
 const { Pool } = pg;
 
-// ✅ Use DATABASE_URL if available (Render), otherwise use individual variables (local dev)
+// Use DATABASE_URL if available (Render), otherwise use individual variables (local dev)
 export const pool = process.env.DATABASE_URL
   ? new Pool({
       connectionString: process.env.DATABASE_URL,
@@ -63,7 +59,7 @@ pool.connect()
   .then(() => console.log('✅ DB Connected'))
   .catch((err) => console.error('❌ DB Error', err));
 
-// Routes
+// ==================== API Routes ====================
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/attendance', attendanceRoutes);
@@ -72,19 +68,7 @@ app.use('/api/export', exportRoutes);
 app.use('/api/health', healthRoutes);
 app.use('/api/employees', employeeRoutes);
 
-// Start server
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`📊 API Documentation: http://localhost:${PORT}/api`);
-});
-
-// Graceful shutdown
-process.on('SIGTERM', () => {
-  console.log('SIGTERM signal received: closing HTTP server');
-  pool.end();
-  process.exit(0);
-});
-
+// Health check endpoint
 app.get('/api/db-health', async (req, res) => {
   try {
     const result = await pool.query('SELECT NOW()');
@@ -92,4 +76,17 @@ app.get('/api/db-health', async (req, res) => {
   } catch (err) {
     res.status(500).json({ status: 'error', error: err.message });
   }
+});
+
+// ==================== Start Server ====================
+app.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`📊 API Documentation: http://localhost:${PORT}/api`);
+});
+
+// ==================== Graceful Shutdown ====================
+process.on('SIGTERM', () => {
+  console.log('SIGTERM signal received: closing HTTP server');
+  pool.end();
+  process.exit(0);
 });
