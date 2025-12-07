@@ -3,6 +3,9 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import pg from 'pg';
 
+// ✅ Set server timezone to Africa/Harare (GMT+2)
+process.env.TZ = 'Africa/Harare';
+
 import authRoutes from './routes/auth.routes.js';
 import userRoutes from './routes/user.routes.js';
 import attendanceRoutes from './routes/attendance.routes.js';
