@@ -21,6 +21,16 @@ app.use((req, res, next) => {
   next();
 });
 
+const corsOptions = {
+  origin: [
+    'http://localhost:5173',
+    'https://attendance-tracker-app-jnxk.onrender.com', // ✅ Add your Render frontend URL
+  ],
+  credentials: true
+};
+
+app.use(cors(corsOptions));
+
 // Middleware
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || '').split(',').filter(Boolean);
 app.use(cors({ origin: allowedOrigins.length ? allowedOrigins : '*', credentials: true }));
