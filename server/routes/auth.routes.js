@@ -13,16 +13,10 @@ router.post('/login', async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    // ✅ Debug: log the incoming email
-    // console.log("LOGIN EMAIL:", email);
-
     const result = await pool.query(
       'SELECT * FROM users WHERE email = $1',
       [email]
     );
-
-    // ✅ Debug: log what the DB returned
-    // console.log("DB USER:", result.rows);
 
     if (result.rows.length === 0) {
       return res.status(401).json({ error: 'Invalid credentials' });
@@ -30,12 +24,14 @@ router.post('/login', async (req, res) => {
 
     const user = result.rows[0];
 
-     // ✅ Debug: log the hash and compare result
-    // console.log("HASH FROM DB:", user.password_hash);
+    // ✅ Check if password exists
+    if (!user.password) {
+      console.log('❌ User has no password:', email);
+      return res.status(500).json({ error: 'Database error: User has no password' });
+    }
 
-    const validPassword = await bcrypt.compare(password, user.password_hash);
-
-    // console.log("PASSWORD MATCH:", validPassword);
+    // ✅ Fixed: Use 'password' not 'password_hash'
+    const validPassword = await bcrypt.compare(password, user.password);
 
     if (!validPassword) {
       return res.status(401).json({ error: 'Invalid credentials' });
@@ -46,9 +42,6 @@ router.post('/login', async (req, res) => {
       process.env.JWT_SECRET,
       { expiresIn: process.env.JWT_EXPIRES_IN || '24h' }
     );
-
-    // console.log('GENERATED TOKEN:', token); // ✅ ADD THIS LINE
-    // console.log('JWT_SECRET exists:', !!process.env.JWT_SECRET); // ✅ ADD THIS LINE
 
     res.json({
       token,
@@ -88,9 +81,9 @@ router.post(
       // Hash password
       const passwordHash = await bcrypt.hash(password, 10);
 
-      // Insert user
+      // ✅ Fixed: Use 'password' not 'password_hash'
       const result = await pool.query(
-        'INSERT INTO users (email, password_hash, name, role, department) VALUES ($1, $2, $3, $4, $5) RETURNING id, email, name, role, department',
+        'INSERT INTO users (email, password, name, role, department) VALUES ($1, $2, $3, $4, $5) RETURNING id, email, name, role, department',
         [email, passwordHash, name, role, department]
       );
 
@@ -119,9 +112,9 @@ router.put(
       // Hash new password
       const passwordHash = await bcrypt.hash(newPassword, 10);
 
-      // Update DB
+      // ✅ Fixed: Use 'password' not 'password_hash'
       const result = await pool.query(
-        'UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2 RETURNING id, email, name, role',
+        'UPDATE users SET password = $1, updated_at = NOW() WHERE id = $2 RETURNING id, email, name, role',
         [passwordHash, userId]
       );
 
