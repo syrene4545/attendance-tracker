@@ -3,39 +3,56 @@ import { useAuth } from '../contexts/AuthContext';
 import { useAttendance } from '../contexts/AttendanceContext';
 import { useEmployees } from '../contexts/EmployeeContext';
 import { getEventLabel, getEventIcon, getEventColor } from '../utils/eventUtils';
-import { formatDate, formatTime, toDateTimeLocal, getCurrentDate } from '../utils/timezone'; // ✅ Import timezone utils
-import { Activity, MapPin, Filter, Download, Edit2, Calendar } from 'lucide-react';
+import { formatDate, formatTime, toDateTimeLocal, getCurrentDate } from '../utils/timezone';
+import { Activity, MapPin, Filter, Download, Edit2, Calendar, X } from 'lucide-react';
 import api from '../api/api';
 
 const RecordsView = () => {
   const { currentUser, checkPermission } = useAuth();
   const { attendanceLogs, updateLog } = useAttendance();
   const { employees } = useEmployees();
-  const [selectedDate, setSelectedDate] = useState(getCurrentDate()); // ✅ Use timezone-aware date
+  const [selectedDate, setSelectedDate] = useState(''); // ✅ Empty = show all dates by default
   const [selectedEmployee, setSelectedEmployee] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [editingLog, setEditingLog] = useState(null);
 
+  // Add debug logging on mount
+  useEffect(() => {
+    console.log('🔍 RecordsView Debug:', {
+      totalLogs: attendanceLogs.length,
+      canViewAll: checkPermission('view_all'),
+      canEditAll: checkPermission('edit_all'),
+      canExport: checkPermission('export_data'),
+      currentUser: currentUser?.role
+    });
+  }, [attendanceLogs, currentUser]);
+
   // Filter logs
   const filterLogs = () => {
-    return attendanceLogs.filter(log => {
-      const logDate = log.timestamp ? formatDate(log.timestamp) : ''; // ✅ Use timezone formatter
-      const dateMatch = !selectedDate || logDate === selectedDate;
+    const filtered = attendanceLogs.filter(log => {
+      const logDate = log.timestamp ? formatDate(log.timestamp) : '';
+      const dateMatch = !selectedDate || logDate === selectedDate; // ✅ Empty date = show all
       const employeeMatch = selectedEmployee === 'all' || log.userId === parseInt(selectedEmployee);
-      const searchMatch = !searchTerm || log.userName.toLowerCase().includes(searchTerm.toLowerCase());
+      const searchMatch = !searchTerm || log.userName?.toLowerCase().includes(searchTerm.toLowerCase());
       const roleMatch = checkPermission('view_all') || log.userId === currentUser?.id;
       return dateMatch && employeeMatch && searchMatch && roleMatch;
     });
+    
+    console.log('✅ Filtered logs:', filtered.length, 'of', attendanceLogs.length);
+    return filtered;
   };
 
   // CSV Export
   const exportToCSV = async () => {
     console.log('🔵 Export CSV button clicked');
     try {
+      // If no date selected, use current date for filename
+      const exportDate = selectedDate || getCurrentDate();
+      
       const response = await api.get('/export/csv', {
         params: { 
-          startDate: selectedDate, 
-          endDate: selectedDate 
+          startDate: selectedDate || undefined, 
+          endDate: selectedDate || undefined
         },
         responseType: 'blob'
       });
@@ -43,7 +60,7 @@ const RecordsView = () => {
       const url = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement('a');
       link.href = url;
-      link.setAttribute('download', `attendance-report-${selectedDate}.csv`);
+      link.setAttribute('download', `attendance-report-${exportDate}.csv`);
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -90,12 +107,24 @@ const RecordsView = () => {
             <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Date</label>
-                <input
-                  type="date"
-                  value={selectedDate}
-                  onChange={(e) => setSelectedDate(e.target.value)}
-                  className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
-                />
+                <div className="flex space-x-2">
+                  <input
+                    type="date"
+                    value={selectedDate}
+                    onChange={(e) => setSelectedDate(e.target.value)}
+                    placeholder="All dates"
+                    className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                  />
+                  {selectedDate && (
+                    <button
+                      onClick={() => setSelectedDate('')}
+                      className="px-3 py-2 bg-gray-200 rounded-lg hover:bg-gray-300 transition-colors"
+                      title="Clear date filter"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
               </div>
               
               <div>
@@ -166,7 +195,9 @@ const RecordsView = () => {
               {filteredLogs.length === 0 ? (
                 <tr>
                   <td colSpan={checkPermission('view_all') ? 7 : 6} className="text-center py-8 text-gray-500">
-                    No attendance records found
+                    {attendanceLogs.length === 0 
+                      ? 'No attendance records in the system'
+                      : 'No records match your filters'}
                   </td>
                 </tr>
               ) : (
@@ -243,7 +274,7 @@ const RecordsView = () => {
                 <label className="block text-sm font-medium text-gray-700 mb-1">Date & Time</label>
                 <input
                   type="datetime-local"
-                  value={toDateTimeLocal(editingLog.timestamp)} /* ✅ Use timezone converter */
+                  value={toDateTimeLocal(editingLog.timestamp)}
                   onChange={(e) => setEditingLog({...editingLog, timestamp: e.target.value})}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
                 />
