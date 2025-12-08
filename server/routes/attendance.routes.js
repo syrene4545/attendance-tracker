@@ -1,47 +1,8 @@
 // server/routes/attendance.routes.js
-process.env.TZ = 'Africa/Harare';
 import express from 'express';
 import { pool } from '../index.js';
 import { authenticateToken, checkPermission } from '../middleware/permissionMiddleware.js';
 import { body, validationResult, query } from 'express-validator';
-
-// ✅ STEP 2: After creating the pool, add this event listener
-// This sets PostgreSQL session timezone for every connection
-
-export const pool = process.env.DATABASE_URL
-  ? new Pool({
-      connectionString: process.env.DATABASE_URL,
-      ssl: { rejectUnauthorized: false }
-    })
-  : new Pool({
-      user: process.env.DB_USER || 'postgres',
-      host: process.env.DB_HOST || 'localhost',
-      database: process.env.DB_NAME || 'attendance_db',
-      password: process.env.DB_PASSWORD || 'QweasD#123',
-      port: Number(process.env.DB_PORT) || 5432,
-    });
-
-// ✅ Set PostgreSQL session timezone for all connections
-pool.on('connect', (client) => {
-  client.query("SET timezone = 'Africa/Harare'", (err) => {
-    if (err) {
-      console.error('Failed to set timezone:', err);
-    }
-  });
-});
-
-// ✅ STEP 3: Update the pool.connect() section to show timezone info
-pool.connect()
-  .then(() => {
-    console.log('✅ DB Connected');
-    console.log('🌍 Server timezone:', process.env.TZ);
-    console.log('🕐 Current server time:', new Date().toLocaleString('en-ZA', { 
-      timeZone: 'Africa/Harare',
-      dateStyle: 'full',
-      timeStyle: 'long'
-    }));
-  })
-  .catch((err) => console.error('❌ DB Error', err));
 
 const router = express.Router();
 
