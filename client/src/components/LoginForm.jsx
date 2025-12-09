@@ -61,7 +61,7 @@ const LoginForm = () => {
           </button>
         </form>
 
-        <div className="mt-6 p-4 bg-gray-50 rounded-lg text-sm">
+        {/* <div className="mt-6 p-4 bg-gray-50 rounded-lg text-sm">
           <p className="font-semibold mb-2">Demo Accounts:</p>
           <div className="space-y-1">
             <p><strong>Admin:</strong> admin@company.com / password123</p>
@@ -69,7 +69,7 @@ const LoginForm = () => {
             <p><strong>Pharmacist:</strong> john@company.com / password123</p>
             <p><strong>Assistant:</strong> jane@company.com / password123</p>
           </div>
-        </div>
+        </div> */}
       </div>
     </div>
   );
