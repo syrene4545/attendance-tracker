@@ -18,6 +18,8 @@ import EmployeesView from './views/EmployeesView';
 import AnalyticsView from './views/AnalyticsView';
 import RecordsView from './views/RecordsView';
 
+import RequestsView from './views/RequestsView';
+
 // Components
 import Header from './components/Header';
 import Sidebar from './components/Sidebar';
@@ -69,6 +71,7 @@ const AttendanceApp = () => {
           {currentView === 'employees' && <EmployeesView />}
           {currentView === 'analytics' && <AnalyticsView />}
           {currentView === 'records' && <RecordsView />}
+          {currentView === 'requests' && <RequestsView />}
         </main>
       </div>
     </div>

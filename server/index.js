@@ -14,6 +14,12 @@ import exportRoutes from './routes/export.routes.js';
 import healthRoutes from './routes/health.routes.js';
 import employeeRoutes from './routes/employee.routes.js';
 
+import passwordResetRoutes from './routes/passwordReset.routes.js';
+import signupRequestRoutes from './routes/signupRequest.routes.js';
+
+import departmentRoutes from './routes/departments.routes.js';
+
+
 dotenv.config();
 
 const app = express();
@@ -70,6 +76,10 @@ app.use('/api/analytics', analyticsRoutes);
 app.use('/api/export', exportRoutes);
 app.use('/api/health', healthRoutes);
 app.use('/api/employees', employeeRoutes);
+
+app.use('/api/password-reset', passwordResetRoutes);
+app.use('/api/signup-request', signupRequestRoutes);
+app.use('/api/departments', departmentRoutes);
 
 // Health check endpoint
 app.get('/api/db-health', async (req, res) => {

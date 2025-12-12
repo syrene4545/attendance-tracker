@@ -1,5 +1,7 @@
 import { Home, Calendar, Users, BarChart3, Activity } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { FileText } from 'lucide-react';
+
 
 const Sidebar = ({ currentView, onViewChange, isOpen, onClose }) => {
   const { checkPermission } = useAuth();
@@ -10,6 +12,7 @@ const Sidebar = ({ currentView, onViewChange, isOpen, onClose }) => {
     { id: 'employees', label: 'Employees', icon: Users, permission: 'view_all' },
     { id: 'analytics', label: 'Analytics', icon: BarChart3, permission: 'view_analytics' },
     { id: 'records', label: 'Records', icon: Activity, permission: 'view_all' },
+    { id: 'requests', label: 'Requests', icon: FileText, permission: 'manage_users' }, // ✅ new item
   ];
 
   return (

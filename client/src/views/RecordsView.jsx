@@ -32,6 +32,18 @@ const RecordsView = () => {
     const filtered = attendanceLogs.filter(log => {
       const logDate = log.timestamp ? formatDate(log.timestamp) : '';
       const dateMatch = !selectedDate || logDate === selectedDate; // ✅ Empty date = show all
+
+      // ✅ Debug logging
+      if (selectedDate && log.id === attendanceLogs[0]?.id) {
+        console.log('🔍 Date comparison:', {
+          selectedDate,
+          logDate,
+          match: dateMatch,
+          logTimestamp: log.timestamp
+        });
+      }
+
+
       const employeeMatch = selectedEmployee === 'all' || log.userId === parseInt(selectedEmployee);
       const searchMatch = !searchTerm || log.userName?.toLowerCase().includes(searchTerm.toLowerCase());
       const roleMatch = checkPermission('view_all') || log.userId === currentUser?.id;

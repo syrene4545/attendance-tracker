@@ -33,19 +33,48 @@ export const formatDateTime = (date, options = {}) => {
 };
 
 /**
- * Format date only (no time)
+//  * Format date only (no time)
+//  * @param {string|Date} date - Date to format
+//  * @returns {string} Formatted date string (YYYY-MM-DD)
+//  */
+// export const formatDate = (date) => {
+//   return formatDateTime(date, {
+//     year: 'numeric',
+//     month: '2-digit',
+//     day: '2-digit',
+//     hour: undefined,
+//     minute: undefined,
+//     second: undefined,
+//   });
+// };
+
+/**
+ * Format date only (no time) in YYYY-MM-DD format
  * @param {string|Date} date - Date to format
  * @returns {string} Formatted date string (YYYY-MM-DD)
  */
 export const formatDate = (date) => {
-  return formatDateTime(date, {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: undefined,
-    minute: undefined,
-    second: undefined,
-  });
+  if (!date) return '';
+  
+  try {
+    const d = new Date(date);
+    
+    // Get components in Africa/Harare timezone
+    const formatter = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Africa/Harare',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    });
+    
+    const formatted = formatter.format(d);
+    
+    // ✅ Ensure format is YYYY-MM-DD (replace slashes with dashes)
+    return formatted.replace(/\//g, '-');
+  } catch (error) {
+    console.error('Error formatting date:', error);
+    return '';
+  }
 };
 
 /**

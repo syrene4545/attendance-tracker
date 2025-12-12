@@ -2,11 +2,25 @@ import { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { Clock, AlertCircle } from 'lucide-react';
 
+import ForgotPassword from './ForgotPassword';
+import SignupRequest from './SignupRequest';
+
 const LoginForm = () => {
   const { login } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+
+  const [showForgotPassword, setShowForgotPassword] = useState(false);
+  const [showSignupRequest, setShowSignupRequest] = useState(false);
+
+  if (showForgotPassword) {
+    return <ForgotPassword onBack={() => setShowForgotPassword(false)} />;
+  }
+
+  if (showSignupRequest) {
+    return <SignupRequest onBack={() => setShowSignupRequest(false)} />;
+  }
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -60,6 +74,24 @@ const LoginForm = () => {
             Sign In
           </button>
         </form>
+
+        <div className="mt-6 text-center space-y-2">
+          <button
+            type="button"
+            onClick={() => setShowForgotPassword(true)}
+            className="text-indigo-600 hover:text-indigo-700 text-sm font-medium"
+          >
+            Forgot Password?
+          </button>
+          <div className="text-gray-500">or</div>
+          <button
+            type="button"
+            onClick={() => setShowSignupRequest(true)}
+            className="text-indigo-600 hover:text-indigo-700 text-sm font-medium"
+          >
+            Request New Account
+          </button>
+        </div>
 
         {/* <div className="mt-6 p-4 bg-gray-50 rounded-lg text-sm">
           <p className="font-semibold mb-2">Demo Accounts:</p>
