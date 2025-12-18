@@ -16,8 +16,13 @@ import employeeRoutes from './routes/employee.routes.js';
 
 import passwordResetRoutes from './routes/passwordReset.routes.js';
 import signupRequestRoutes from './routes/signupRequest.routes.js';
-
 import departmentRoutes from './routes/departments.routes.js';
+import jobPositionRoutes from './routes/jobPositions.routes.js';
+import employeeProfileRoutes from './routes/employeeProfile.routes.js';
+import compensationRoutes from './routes/compensation.routes.js';
+import leaveRoutes from './routes/leave.routes.js';
+import payrollRoutes from './routes/payroll.routes.js';
+
 
 
 dotenv.config();
@@ -77,9 +82,16 @@ app.use('/api/export', exportRoutes);
 app.use('/api/health', healthRoutes);
 app.use('/api/employees', employeeRoutes);
 
+
 app.use('/api/password-reset', passwordResetRoutes);
 app.use('/api/signup-request', signupRequestRoutes);
 app.use('/api/departments', departmentRoutes);
+app.use('/api/job-positions', jobPositionRoutes);
+app.use('/api/employee-profiles', employeeProfileRoutes);
+app.use('/api/compensation', compensationRoutes);
+app.use('/api/leave', leaveRoutes);
+app.use('/api/payroll', payrollRoutes);
+
 
 // Health check endpoint
 app.get('/api/db-health', async (req, res) => {

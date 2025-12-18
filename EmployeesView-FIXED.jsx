@@ -141,9 +141,7 @@ const EmployeeView = () => {
       hireDate: new Date().toISOString().split('T')[0],
       baseSalary: '',
       mobileNumber: '',
-      employmentType: 'full-time',
-      password: 'Welcome123!', // ✅ Add default password
-      role: 'assistant'
+      employmentType: 'full-time'
     });
     setShowAddModal(true);
   };
@@ -185,36 +183,18 @@ const EmployeeView = () => {
 
     try {
       setSaving(true);
-      
-      const payload = {
-        employeeNumber: formData.employeeNumber,
-        firstName: formData.firstName,
-        lastName: formData.lastName,
-        email: formData.email,
-        departmentId: parseInt(formData.departmentId),
-        jobPositionId: parseInt(formData.jobPositionId),
-        hireDate: formData.hireDate,
-        baseSalary: parseFloat(formData.baseSalary),
-        mobileNumber: formData.mobileNumber || '',
-        employmentType: formData.employmentType,
-        password: 'Welcome123!',
-        role: 'assistant',
-      };
-      
-      console.log('📤 Sending payload:', payload);
-      
-      await api.post('/employee-profiles', payload); // ✅ Send payload!
-      
-      alert('✅ Employee added successfully!\n\nDefault login:\nEmail: ' + formData.email + '\nPassword: Welcome123!');
+      await api.post('/employee-profiles', formData);
+      alert('Employee added successfully!');
       setShowAddModal(false);
       loadData();
     } catch (error) {
-      console.error('❌ Error:', error.response?.data);
+      console.error('Failed to add employee:', error);
       alert(error.response?.data?.error || 'Failed to add employee');
     } finally {
       setSaving(false);
     }
   };
+
   // Update Employee
   const handleUpdateEmployee = async () => {
     if (!selectedEmployee) return;
@@ -766,42 +746,6 @@ const EmployeeView = () => {
                   </select>
                 </div>
               </div>
-            </div>
-
-            {/* In the form modal, add these inputs */}
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Password <span className="text-red-500">*</span>
-              </label>
-              <input
-                type="password"
-                name="password"
-                value={formData.password}
-                onChange={handleFormChange}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
-                placeholder="Default: Welcome123!"
-              />
-              <p className="text-xs text-gray-500 mt-1">
-                Employee can change this after first login
-              </p>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Role <span className="text-red-500">*</span>
-              </label>
-              <select
-                name="role"
-                value={formData.role}
-                onChange={handleFormChange}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
-              >
-                <option value="assistant">Assistant</option>
-                <option value="pharmacist">Pharmacist</option>
-                <option value="hr">HR</option>
-                <option value="admin">Admin</option>
-              </select>
             </div>
 
             <div className="sticky bottom-0 bg-gray-50 border-t border-gray-200 px-6 py-4 flex justify-end gap-3">

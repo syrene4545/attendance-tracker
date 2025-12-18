@@ -1,4 +1,4 @@
-// client/src/views/EmployeesView.jsx - FIXED VERSION
+// client/src/views/EmployeeView.jsx
 import React, { useState, useEffect } from 'react';
 import api from '../api/api';
 import { 
@@ -20,8 +20,7 @@ import {
   Download,
   X,
   Building2,
-  Award,
-  Save
+  Award
 } from 'lucide-react';
 
 const EmployeeView = () => {
@@ -39,24 +38,7 @@ const EmployeeView = () => {
   const [positions, setPositions] = useState([]);
   const [selectedEmployee, setSelectedEmployee] = useState(null);
   const [showEmployeeModal, setShowEmployeeModal] = useState(false);
-  const [showAddModal, setShowAddModal] = useState(false);
-  const [showEditModal, setShowEditModal] = useState(false);
   const [stats, setStats] = useState(null);
-  const [saving, setSaving] = useState(false);
-  
-  // Form state for adding/editing employee
-  const [formData, setFormData] = useState({
-    employeeNumber: '',
-    firstName: '',
-    lastName: '',
-    email: '',
-    departmentId: '',
-    jobPositionId: '',
-    hireDate: '',
-    baseSalary: '',
-    mobileNumber: '',
-    employmentType: 'full-time'
-  });
 
   useEffect(() => {
     loadData();
@@ -129,110 +111,6 @@ const EmployeeView = () => {
     }
   };
 
-  // Open Add Employee Modal
-  const openAddModal = () => {
-    setFormData({
-      employeeNumber: '',
-      firstName: '',
-      lastName: '',
-      email: '',
-      departmentId: '',
-      jobPositionId: '',
-      hireDate: new Date().toISOString().split('T')[0],
-      baseSalary: '',
-      mobileNumber: '',
-      employmentType: 'full-time',
-      password: 'Welcome123!', // ✅ Add default password
-      role: 'assistant'
-    });
-    setShowAddModal(true);
-  };
-
-  // Open Edit Employee Modal
-  const openEditModal = (employee) => {
-    setSelectedEmployee(employee);
-    setFormData({
-      employeeNumber: employee.employeeNumber || '',
-      firstName: employee.firstName || employee.name?.split(' ')[0] || '',
-      lastName: employee.lastName || employee.name?.split(' ').slice(1).join(' ') || '',
-      email: employee.email || '',
-      departmentId: employee.departmentId || '',
-      jobPositionId: employee.jobPositionId || '',
-      hireDate: employee.hireDate?.split('T')[0] || '',
-      baseSalary: employee.currentSalary || '',
-      mobileNumber: employee.mobileNumber || '',
-      employmentType: employee.employmentType || 'full-time'
-    });
-    setShowEmployeeModal(false);
-    setShowEditModal(true);
-  };
-
-  // Handle Form Change
-  const handleFormChange = (e) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
-  };
-
-  // Add Employee
-  const handleAddEmployee = async () => {
-    // Validation
-    if (!formData.firstName || !formData.lastName || !formData.email || 
-        !formData.employeeNumber || !formData.departmentId || 
-        !formData.jobPositionId || !formData.hireDate || !formData.baseSalary) {
-      alert('Please fill in all required fields');
-      return;
-    }
-
-    try {
-      setSaving(true);
-      
-      const payload = {
-        employeeNumber: formData.employeeNumber,
-        firstName: formData.firstName,
-        lastName: formData.lastName,
-        email: formData.email,
-        departmentId: parseInt(formData.departmentId),
-        jobPositionId: parseInt(formData.jobPositionId),
-        hireDate: formData.hireDate,
-        baseSalary: parseFloat(formData.baseSalary),
-        mobileNumber: formData.mobileNumber || '',
-        employmentType: formData.employmentType,
-        password: 'Welcome123!',
-        role: 'assistant',
-      };
-      
-      console.log('📤 Sending payload:', payload);
-      
-      await api.post('/employee-profiles', payload); // ✅ Send payload!
-      
-      alert('✅ Employee added successfully!\n\nDefault login:\nEmail: ' + formData.email + '\nPassword: Welcome123!');
-      setShowAddModal(false);
-      loadData();
-    } catch (error) {
-      console.error('❌ Error:', error.response?.data);
-      alert(error.response?.data?.error || 'Failed to add employee');
-    } finally {
-      setSaving(false);
-    }
-  };
-  // Update Employee
-  const handleUpdateEmployee = async () => {
-    if (!selectedEmployee) return;
-
-    try {
-      setSaving(true);
-      await api.put(`/employee-profiles/${selectedEmployee.userId}`, formData);
-      alert('Employee updated successfully!');
-      setShowEditModal(false);
-      loadData();
-    } catch (error) {
-      console.error('Failed to update employee:', error);
-      alert(error.response?.data?.error || 'Failed to update employee');
-    } finally {
-      setSaving(false);
-    }
-  };
-
   const getStatusColor = (status) => {
     const colors = {
       active: 'bg-green-100 text-green-800',
@@ -294,7 +172,6 @@ const EmployeeView = () => {
           <p className="text-gray-600 mt-1">Manage your organization's workforce</p>
         </div>
         <button
-          onClick={openAddModal}
           className="flex items-center gap-2 bg-indigo-600 text-white px-6 py-3 rounded-lg hover:bg-indigo-700 transition-colors"
         >
           <Plus className="w-5 h-5" />
@@ -572,10 +449,7 @@ const EmployeeView = () => {
                 <Eye className="w-4 h-4" />
               </button>
               <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  openEditModal(employee);
-                }}
+                onClick={(e) => e.stopPropagation()}
                 className="text-gray-600 hover:text-gray-700 p-2"
                 title="Edit"
               >
@@ -592,238 +466,6 @@ const EmployeeView = () => {
           <Users className="w-16 h-16 text-gray-400 mx-auto mb-4" />
           <h3 className="text-lg font-semibold text-gray-900 mb-2">No employees found</h3>
           <p className="text-gray-600">Try adjusting your search or filters</p>
-        </div>
-      )}
-
-      {/* Add/Edit Employee Modal */}
-      {(showAddModal || showEditModal) && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="sticky top-0 bg-white border-b border-gray-200 p-6 flex items-center justify-between">
-              <h2 className="text-2xl font-bold text-gray-900">
-                {showAddModal ? 'Add New Employee' : 'Edit Employee'}
-              </h2>
-              <button
-                onClick={() => {
-                  setShowAddModal(false);
-                  setShowEditModal(false);
-                }}
-                className="text-gray-400 hover:text-gray-600"
-              >
-                <X className="w-6 h-6" />
-              </button>
-            </div>
-
-            <div className="p-6 space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Employee Number <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    name="employeeNumber"
-                    value={formData.employeeNumber}
-                    onChange={handleFormChange}
-                    disabled={showEditModal}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
-                    placeholder="EMP001"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Email <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="email"
-                    name="email"
-                    value={formData.email}
-                    onChange={handleFormChange}
-                    disabled={showEditModal}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
-                    placeholder="email@company.com"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    First Name <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    name="firstName"
-                    value={formData.firstName}
-                    onChange={handleFormChange}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
-                    placeholder="John"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Last Name <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    name="lastName"
-                    value={formData.lastName}
-                    onChange={handleFormChange}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
-                    placeholder="Doe"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Department <span className="text-red-500">*</span>
-                  </label>
-                  <select
-                    name="departmentId"
-                    value={formData.departmentId}
-                    onChange={handleFormChange}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
-                  >
-                    <option value="">Select Department</option>
-                    {departments.map(dept => (
-                      <option key={dept.id} value={dept.id}>{dept.name}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Position <span className="text-red-500">*</span>
-                  </label>
-                  <select
-                    name="jobPositionId"
-                    value={formData.jobPositionId}
-                    onChange={handleFormChange}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
-                  >
-                    <option value="">Select Position</option>
-                    {positions.map(pos => (
-                      <option key={pos.id} value={pos.id}>{pos.title}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Hire Date <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="date"
-                    name="hireDate"
-                    value={formData.hireDate}
-                    onChange={handleFormChange}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Base Salary <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="number"
-                    name="baseSalary"
-                    value={formData.baseSalary}
-                    onChange={handleFormChange}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
-                    placeholder="35000"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Mobile Number
-                  </label>
-                  <input
-                    type="tel"
-                    name="mobileNumber"
-                    value={formData.mobileNumber}
-                    onChange={handleFormChange}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
-                    placeholder="+27 82 123 4567"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Employment Type
-                  </label>
-                  <select
-                    name="employmentType"
-                    value={formData.employmentType}
-                    onChange={handleFormChange}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
-                  >
-                    <option value="full-time">Full Time</option>
-                    <option value="part-time">Part Time</option>
-                    <option value="contract">Contract</option>
-                    <option value="intern">Intern</option>
-                  </select>
-                </div>
-              </div>
-            </div>
-
-            {/* In the form modal, add these inputs */}
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Password <span className="text-red-500">*</span>
-              </label>
-              <input
-                type="password"
-                name="password"
-                value={formData.password}
-                onChange={handleFormChange}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
-                placeholder="Default: Welcome123!"
-              />
-              <p className="text-xs text-gray-500 mt-1">
-                Employee can change this after first login
-              </p>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Role <span className="text-red-500">*</span>
-              </label>
-              <select
-                name="role"
-                value={formData.role}
-                onChange={handleFormChange}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
-              >
-                <option value="assistant">Assistant</option>
-                <option value="pharmacist">Pharmacist</option>
-                <option value="hr">HR</option>
-                <option value="admin">Admin</option>
-              </select>
-            </div>
-
-            <div className="sticky bottom-0 bg-gray-50 border-t border-gray-200 px-6 py-4 flex justify-end gap-3">
-              <button
-                onClick={() => {
-                  setShowAddModal(false);
-                  setShowEditModal(false);
-                }}
-                className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-100 transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={showAddModal ? handleAddEmployee : handleUpdateEmployee}
-                disabled={saving}
-                className="flex items-center gap-2 px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors disabled:bg-gray-400"
-              >
-                <Save className="w-4 h-4" />
-                {saving ? 'Saving...' : (showAddModal ? 'Add Employee' : 'Update Employee')}
-              </button>
-            </div>
-          </div>
         </div>
       )}
 
@@ -1032,10 +674,7 @@ const EmployeeView = () => {
               >
                 Close
               </button>
-              <button 
-                onClick={() => openEditModal(selectedEmployee)}
-                className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
-              >
+              <button className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors">
                 <Edit className="w-4 h-4" />
                 Edit Employee
               </button>

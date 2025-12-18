@@ -17,6 +17,13 @@ import AttendanceView from './views/AttendanceView';
 import EmployeesView from './views/EmployeesView';
 import AnalyticsView from './views/AnalyticsView';
 import RecordsView from './views/RecordsView';
+import PayrollView from './views/PayrollView';
+import PayslipView from './views/PayslipView';
+// import EmployeeDirectory from './views/EmployeeDirectory';
+import EmployeeForm from './views/EmployeeForm';
+import MyProfile from './views/MyProfile';
+import MyPayslips from './views/MyPayslips';
+import LeaveManagement from './views/LeaveManagement';
 
 import RequestsView from './views/RequestsView';
 
@@ -72,6 +79,14 @@ const AttendanceApp = () => {
           {currentView === 'analytics' && <AnalyticsView />}
           {currentView === 'records' && <RecordsView />}
           {currentView === 'requests' && <RequestsView />}
+          {currentView === 'payroll' && <PayrollView />}
+          {currentView === 'payslip' && <PayslipView />}
+          {/* {currentView === 'employeeDirectory' && <EmployeeDirectory />}   ✅ new */}
+          {currentView === 'employeeFormNew' && <EmployeeForm mode="new" />} {/* ✅ new */}
+          {currentView === 'employeeFormEdit' && <EmployeeForm mode="edit" />} {/* ✅ new */}
+          {currentView === 'my-profile' && <MyProfile />} {/* ✅ new */}
+          {currentView === 'my-payslips' && <MyPayslips />}
+          {currentView === 'leave' && <LeaveManagement />}
         </main>
       </div>
     </div>

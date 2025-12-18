@@ -51,19 +51,68 @@ export const checkPermission = (permission) => {
         "manage_users",
         "view_analytics",
         "export_data",
+        "view_payroll",
+        "process_payroll",
+        "manage_compensation",
+        "view_employees",
+        "manage_employees",
+        "view_org_structure",
+        "manage_org_structure",
+        "approve_leave",
+        "view_leave_reports",
+        "view_compensation",
+        "request_leave",
       ],
-      hr: ["view_all", "edit_attendance", "view_analytics", "export_data"],
-      pharmacist: ["view_own", "record_attendance"],
-      assistant: ["view_own", "record_attendance"],
+      hr: [
+        "view_all",
+        "edit_attendance",
+        "view_analytics",
+        "export_data",
+        "view_payroll",
+        "view_compensation",
+        "approve_leave",
+        "view_employees",
+        "manage_employees",
+        "view_org_structure",
+        "view_leave_reports",
+        "request_leave",
+      ],
+      pharmacist: [
+        "view_own", 
+        "record_attendance", 
+        "view_employees",
+        "request_leave",
+        "view_own_payslip",
+      ],
+      assistant: [
+        "view_own", 
+        "record_attendance", 
+        "view_employees",
+        "request_leave",
+        "view_own_payslip",
+        
+      ],
     };
 
     const role = req.user.role;
     const userPermissions = PERMISSIONS[role] || [];
 
+    console.log(`🔐 Permission check: ${permission} for role: ${role}`);
+    console.log(`📋 User permissions:`, userPermissions);
+
     if (!userPermissions.includes(permission)) {
-      return res.status(403).json({ error: "Insufficient permissions" });
+      console.log(`❌ Permission denied`);
+      return res.status(403).json({ 
+        error: "Insufficient permissions",
+        required: permission,
+        yourRole: role 
+      });
     }
 
+    console.log(`✅ Permission granted`);
     next();
   };
 };
+
+
+
