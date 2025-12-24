@@ -24,6 +24,8 @@ import EmployeeForm from './views/EmployeeForm';
 import MyProfile from './views/MyProfile';
 import MyPayslips from './views/MyPayslips';
 import LeaveManagement from './views/LeaveManagement';
+import PoliciesView from './views/PoliciesView';
+import SOPView from './views/SOPView';
 
 import RequestsView from './views/RequestsView';
 
@@ -87,6 +89,8 @@ const AttendanceApp = () => {
           {currentView === 'my-profile' && <MyProfile />} {/* ✅ new */}
           {currentView === 'my-payslips' && <MyPayslips />}
           {currentView === 'leave' && <LeaveManagement />}
+          {currentView === 'policies' && <PoliciesView />}
+          {currentView === 'sop' && <SOPView />}
         </main>
       </div>
     </div>

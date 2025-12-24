@@ -82,54 +82,6 @@ router.get('/balances/:userId', authenticateToken, async (req, res) => {
   }
 });
 
-// router.get('/balances/:userId', authenticateToken, async (req, res) => {
-//   try {
-//     const { userId } = req.params;
-//     const { year } = req.query;
-    
-//     // Check permissions - users can view their own, admin/hr/managers can view all
-//     const canView = ['admin', 'hr'].includes(req.user.role) || req.user.id === parseInt(userId);
-    
-//     if (!canView) {
-//       return res.status(403).json({ error: 'Insufficient permissions' });
-//     }
-    
-//     const currentYear = year || new Date().getFullYear();
-    
-//     const result = await pool.query(
-//       `SELECT 
-//         id,
-//         leave_type as "leaveType",
-//         number_of_days as "totalDays",
-//         used_days as "usedDays",
-//         remaining_days as "remainingDays",
-//         year,
-//         created_at as "createdAt",
-//         updated_at as "updatedAt"
-//       FROM employee_leave_balances
-//       WHERE user_id = $1 AND year = $2
-//       ORDER BY 
-//         CASE leave_type
-//           WHEN 'annual' THEN 1
-//           WHEN 'sick' THEN 2
-//           WHEN 'maternity' THEN 3
-//           WHEN 'paternity' THEN 4
-//           WHEN 'unpaid' THEN 5
-//           ELSE 6
-//         END`,
-//       [userId, currentYear]
-//     );
-    
-//     res.json({ 
-//       balances: result.rows,
-//       year: currentYear
-//     });
-//   } catch (error) {
-//     console.error('Get leave balances error:', error);
-//     res.status(500).json({ error: 'Internal server error' });
-//   }
-// });
-
 // Get leave balance summary for all employees (admin/hr only)
 router.get('/balances/summary/all', authenticateToken, checkPermission('view_leave_reports'), async (req, res) => {
   try {
