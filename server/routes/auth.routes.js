@@ -19,7 +19,9 @@ router.post('/login', async (req, res) => {
 
     // ✅ Get user with company information
     const result = await pool.query(
-      `SELECT u.*, c.company_name, c.subdomain, c.is_active as company_active
+      
+      //  SELECT u.*, c.company_name, c.subdomain, c.is_active as company_active
+      `SELECT u.*, c.name as company_name, c.subdomain, c.is_active as company_active
        FROM users u
        LEFT JOIN companies c ON u.company_id = c.id
        WHERE u.email = $1`,
