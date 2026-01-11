@@ -40,3 +40,60 @@
 .read-the-docs {
   color: #888;
 }
+
+
+/* client/src/App.css or create Header.css */
+
+header {
+  background: white;
+  border-bottom: 2px solid #e5e7eb;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.company-logo-container {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.company-logo {
+  height: 40px;
+  width: auto;
+  max-width: 150px;
+  object-fit: contain;
+}
+
+.company-logo-placeholder {
+  height: 40px;
+  width: 40px;
+  border-radius: 0.5rem;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.company-info h1 {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #1f2937;
+  margin: 0;
+}
+
+.company-info .plan-badge {
+  display: inline-block;
+  padding: 0.125rem 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  background: #e0e7ff;
+  color: #4f46e5;
+  border-radius: 9999px;
+}
+
+/* Responsive */
+@media (max-width: 640px) {
+  .company-info h1 {
+    font-size: 1rem;
+  }
+}

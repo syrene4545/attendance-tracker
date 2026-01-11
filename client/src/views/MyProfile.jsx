@@ -13,7 +13,12 @@ import {
   AlertCircle,
   Edit,
   X,
-  Save
+  Save,
+  CreditCard,
+  FileText,
+  Building2,
+  Lock,
+  ShieldCheck
 } from 'lucide-react';
 
 const MyProfile = () => {
@@ -21,8 +26,13 @@ const MyProfile = () => {
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
+  const [editingPrivileged, setEditingPrivileged] = useState(false); // ✅ For HR/Admin fields
   const [saving, setSaving] = useState(false);
   const [formData, setFormData] = useState({});
+  const [privilegedFormData, setPrivilegedFormData] = useState({}); // ✅ For HR/Admin fields
+
+  // ✅ Check if user can edit privileged fields
+  const canEditPrivileged = ['admin', 'hr'].includes(currentUser?.role);
 
   useEffect(() => {
     loadProfile();
@@ -45,6 +55,18 @@ const MyProfile = () => {
         emergencyContactPhone: res.data.employee.emergencyContactPhone || '',
         emergencyContactRelationship: res.data.employee.emergencyContactRelationship || ''
       });
+      
+      // ✅ Set privileged data
+      setPrivilegedFormData({
+        idNumber: res.data.employee.idNumber || '',
+        passportNumber: res.data.employee.passportNumber || '',
+        taxNumber: res.data.employee.taxNumber || '',
+        jobTitle: res.data.employee.jobTitle || '',
+        bankName: res.data.employee.bankName || '',
+        accountNumber: res.data.employee.accountNumber || '',
+        accountType: res.data.employee.accountType || 'cheque',
+        branchCode: res.data.employee.branchCode || ''
+      });
     } catch (error) {
       console.error('Failed to load profile:', error);
       alert('Failed to load your profile');
@@ -55,6 +77,10 @@ const MyProfile = () => {
 
   const handleEdit = () => {
     setEditing(true);
+  };
+
+  const handleEditPrivileged = () => {
+    setEditingPrivileged(true);
   };
 
   const handleCancel = () => {
@@ -76,9 +102,31 @@ const MyProfile = () => {
     }
   };
 
+  const handleCancelPrivileged = () => {
+    setEditingPrivileged(false);
+    // Reset privileged form data to original
+    if (profile) {
+      setPrivilegedFormData({
+        idNumber: profile.idNumber || '',
+        passportNumber: profile.passportNumber || '',
+        taxNumber: profile.taxNumber || '',
+        jobTitle: profile.jobTitle || '',
+        bankName: profile.bankName || '',
+        accountNumber: profile.accountNumber || '',
+        accountType: profile.accountType || 'cheque',
+        branchCode: profile.branchCode || ''
+      });
+    }
+  };
+
   const handleChange = (e) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
+  };
+
+  const handlePrivilegedChange = (e) => {
+    const { name, value } = e.target;
+    setPrivilegedFormData(prev => ({ ...prev, [name]: value }));
   };
 
   const handleSave = async () => {
@@ -91,6 +139,21 @@ const MyProfile = () => {
     } catch (error) {
       console.error('Failed to update profile:', error);
       alert('Failed to update profile');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleSavePrivileged = async () => {
+    try {
+      setSaving(true);
+      await api.put(`/employee-profiles/${currentUser.id}/privileged`, privilegedFormData);
+      alert('Sensitive information updated successfully!');
+      setEditingPrivileged(false);
+      loadProfile();
+    } catch (error) {
+      console.error('Failed to update privileged info:', error);
+      alert(error.response?.data?.message || 'Failed to update sensitive information');
     } finally {
       setSaving(false);
     }
@@ -118,6 +181,12 @@ const MyProfile = () => {
     } else {
       return `${years} year${years !== 1 ? 's' : ''} ${months} month${months !== 1 ? 's' : ''}`;
     }
+  };
+
+  const maskSensitiveData = (data, visibleChars = 4) => {
+    if (!data) return 'Not provided';
+    if (data.length <= visibleChars) return '*'.repeat(data.length);
+    return '*'.repeat(data.length - visibleChars) + data.slice(-visibleChars);
   };
 
   if (loading) {
@@ -207,6 +276,248 @@ const MyProfile = () => {
             </div>
           )}
         </div>
+      </div>
+
+      {/* ✅ Identification & Tax Information - HR/Admin Only */}
+      <div className="bg-white rounded-lg shadow p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+            <FileText className="w-5 h-5" />
+            Identification & Tax Information
+          </h2>
+          {canEditPrivileged && !editingPrivileged && (
+            <button
+              onClick={handleEditPrivileged}
+              className="flex items-center gap-2 px-3 py-1.5 text-sm bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors"
+            >
+              <ShieldCheck className="w-4 h-4" />
+              Edit (HR/Admin)
+            </button>
+          )}
+        </div>
+
+        {!canEditPrivileged && (
+          <div className="mb-4 bg-blue-50 border border-blue-200 rounded-lg p-3 flex items-start gap-2">
+            <Lock className="w-4 h-4 text-blue-600 mt-0.5 flex-shrink-0" />
+            <p className="text-sm text-blue-800">
+              This information is managed by HR and cannot be edited by employees.
+            </p>
+          </div>
+        )}
+
+        {editingPrivileged ? (
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  ID Number (SA Citizens)
+                </label>
+                <input
+                  type="text"
+                  name="idNumber"
+                  value={privilegedFormData.idNumber}
+                  onChange={handlePrivilegedChange}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500"
+                  placeholder="0000000000000"
+                  maxLength="13"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Passport Number (Foreign Nationals)
+                </label>
+                <input
+                  type="text"
+                  name="passportNumber"
+                  value={privilegedFormData.passportNumber}
+                  onChange={handlePrivilegedChange}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500"
+                  placeholder="A00000000"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Tax Number
+                </label>
+                <input
+                  type="text"
+                  name="taxNumber"
+                  value={privilegedFormData.taxNumber}
+                  onChange={handlePrivilegedChange}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500"
+                  placeholder="0000000000"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Job Title
+                </label>
+                <input
+                  type="text"
+                  name="jobTitle"
+                  value={privilegedFormData.jobTitle}
+                  onChange={handlePrivilegedChange}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500"
+                  placeholder="e.g., Senior Developer"
+                />
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="text-sm text-gray-600">ID Number</label>
+              <p className="font-medium text-gray-900">
+                {canEditPrivileged 
+                  ? (profile.idNumber || 'Not provided')
+                  : maskSensitiveData(profile.idNumber)}
+              </p>
+            </div>
+            <div>
+              <label className="text-sm text-gray-600">Passport Number</label>
+              <p className="font-medium text-gray-900">
+                {canEditPrivileged 
+                  ? (profile.passportNumber || 'Not provided')
+                  : maskSensitiveData(profile.passportNumber)}
+              </p>
+            </div>
+            <div>
+              <label className="text-sm text-gray-600">Tax Number</label>
+              <p className="font-medium text-gray-900">
+                {canEditPrivileged 
+                  ? (profile.taxNumber || 'Not provided')
+                  : maskSensitiveData(profile.taxNumber)}
+              </p>
+            </div>
+            <div>
+              <label className="text-sm text-gray-600">Job Title</label>
+              <p className="font-medium text-gray-900">{profile.jobTitle || 'Not provided'}</p>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ✅ Banking Details - HR/Admin Only */}
+      <div className="bg-white rounded-lg shadow p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+            <CreditCard className="w-5 h-5" />
+            Banking Details
+          </h2>
+          {canEditPrivileged && !editingPrivileged && (
+            <span className="text-xs text-gray-500 flex items-center gap-1">
+              <Lock className="w-3 h-3" />
+              Edit above to modify
+            </span>
+          )}
+        </div>
+
+        {!canEditPrivileged && (
+          <div className="mb-4 bg-blue-50 border border-blue-200 rounded-lg p-3 flex items-start gap-2">
+            <Lock className="w-4 h-4 text-blue-600 mt-0.5 flex-shrink-0" />
+            <p className="text-sm text-blue-800">
+              Banking details are securely managed by HR for payroll purposes.
+            </p>
+          </div>
+        )}
+
+        {editingPrivileged ? (
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Bank Name
+                </label>
+                <select
+                  name="bankName"
+                  value={privilegedFormData.bankName}
+                  onChange={handlePrivilegedChange}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500"
+                >
+                  <option value="">Select Bank</option>
+                  <option value="ABSA">ABSA</option>
+                  <option value="Standard Bank">Standard Bank</option>
+                  <option value="FNB">FNB</option>
+                  <option value="Nedbank">Nedbank</option>
+                  <option value="Capitec">Capitec</option>
+                  <option value="TymeBank">TymeBank</option>
+                  <option value="Discovery Bank">Discovery Bank</option>
+                  <option value="African Bank">African Bank</option>
+                  <option value="Other">Other</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Account Type
+                </label>
+                <select
+                  name="accountType"
+                  value={privilegedFormData.accountType}
+                  onChange={handlePrivilegedChange}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500"
+                >
+                  <option value="cheque">Cheque/Current</option>
+                  <option value="savings">Savings</option>
+                  <option value="transmission">Transmission</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Account Number
+                </label>
+                <input
+                  type="text"
+                  name="accountNumber"
+                  value={privilegedFormData.accountNumber}
+                  onChange={handlePrivilegedChange}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500"
+                  placeholder="0000000000"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Branch Code
+                </label>
+                <input
+                  type="text"
+                  name="branchCode"
+                  value={privilegedFormData.branchCode}
+                  onChange={handlePrivilegedChange}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500"
+                  placeholder="000000"
+                  maxLength="6"
+                />
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="text-sm text-gray-600">Bank Name</label>
+              <p className="font-medium text-gray-900">{profile.bankName || 'Not provided'}</p>
+            </div>
+            <div>
+              <label className="text-sm text-gray-600">Account Type</label>
+              <p className="font-medium text-gray-900 capitalize">{profile.accountType || 'Not provided'}</p>
+            </div>
+            <div>
+              <label className="text-sm text-gray-600">Account Number</label>
+              <p className="font-medium text-gray-900">
+                {canEditPrivileged 
+                  ? (profile.accountNumber || 'Not provided')
+                  : maskSensitiveData(profile.accountNumber)}
+              </p>
+            </div>
+            <div>
+              <label className="text-sm text-gray-600">Branch Code</label>
+              <p className="font-medium text-gray-900">
+                {canEditPrivileged 
+                  ? (profile.branchCode || 'Not provided')
+                  : maskSensitiveData(profile.branchCode, 2)}
+              </p>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Contact Information - Editable */}
@@ -509,7 +820,7 @@ const MyProfile = () => {
         </div>
       )}
 
-      {/* Edit Actions */}
+      {/* Edit Actions - Regular Fields */}
       {editing && (
         <div className="bg-white rounded-lg shadow p-6 flex justify-end gap-3">
           <button
@@ -526,6 +837,27 @@ const MyProfile = () => {
           >
             <Save className="w-4 h-4" />
             {saving ? 'Saving...' : 'Save Changes'}
+          </button>
+        </div>
+      )}
+
+      {/* Edit Actions - Privileged Fields */}
+      {editingPrivileged && (
+        <div className="bg-white rounded-lg shadow p-6 flex justify-end gap-3">
+          <button
+            onClick={handleCancelPrivileged}
+            className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-100 transition-colors"
+          >
+            <X className="w-4 h-4 inline mr-2" />
+            Cancel
+          </button>
+          <button
+            onClick={handleSavePrivileged}
+            disabled={saving}
+            className="flex items-center gap-2 px-6 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors disabled:bg-gray-400"
+          >
+            <Save className="w-4 h-4" />
+            {saving ? 'Saving...' : 'Save Sensitive Info'}
           </button>
         </div>
       )}

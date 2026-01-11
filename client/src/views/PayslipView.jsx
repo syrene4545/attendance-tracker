@@ -1,6 +1,6 @@
 // client/src/views/PayslipView.jsx
 import React, { useState, useEffect } from 'react';
-import { useAuth } from '../contexts/AuthContext'; // ✅ Add this import
+import { useAuth } from '../contexts/AuthContext';
 import api from '../api/api';
 import { 
   Download, 
@@ -14,7 +14,7 @@ import {
 } from 'lucide-react';
 
 const PayslipView = ({ runId, userId, onClose }) => {
-  const { currentUser } = useAuth();
+  const { currentUser, company } = useAuth(); // ✅ Get company from context
   const [payslip, setPayslip] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -25,7 +25,6 @@ const PayslipView = ({ runId, userId, onClose }) => {
     if (runId && effectiveUserId) {
       loadPayslip();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [runId, effectiveUserId]);
 
   const loadPayslip = async () => {
@@ -48,16 +47,6 @@ const PayslipView = ({ runId, userId, onClose }) => {
     }
   };
 
-  // const handlePrint = () => {
-  //   window.print();
-  // };
-
-  // const handleDownload = () => {
-  //   // Trigger the browser's print dialog
-  //   // User can then choose "Save as PDF"
-  //   window.print();
-  // };
-
   const handlePrint = () => {
     openPrintWindow();
   };
@@ -67,6 +56,15 @@ const PayslipView = ({ runId, userId, onClose }) => {
   };
 
   const openPrintWindow = () => {
+    // ✅ Get company info with fallbacks
+    const companyName = company?.name || 'Company Name';
+    const companyAddress = company?.address_line1 || 'Company Address';
+    const companyCity = company?.city || '';
+    const companyPostalCode = company?.postal_code || '';
+    const companyPhone = company?.phone || 'N/A';
+    const companyEmail = company?.email || 'info@company.com';
+    const companyLogo = company?.branding?.logoUrl || null;
+
     // Create a new window with just the payslip
     const printWindow = window.open('', '_blank', 'width=800,height=600');
     
@@ -108,6 +106,19 @@ const PayslipView = ({ runId, userId, onClose }) => {
             border-bottom: 3px solid #4F46E5;
             padding-bottom: 20px;
             margin-bottom: 30px;
+          }
+
+          .company-logo-section {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            margin-bottom: 10px;
+          }
+
+          .company-logo {
+            width: 60px;
+            height: 60px;
+            object-fit: contain;
           }
           
           .company-info h1 {
@@ -359,10 +370,18 @@ const PayslipView = ({ runId, userId, onClose }) => {
           <!-- Header -->
           <div class="header">
             <div class="company-info">
-              <h1>Lera Health</h1>
-              <p>67C Landross Mare Street</p>
-              <p>Polokwane, 0700</p>
-              <p>Tel: +27 72 640 8996</p>
+              ${companyLogo ? `
+                <div class="company-logo-section">
+                  <img src="${companyLogo}" alt="${companyName}" class="company-logo" />
+                  <h1>${companyName}</h1>
+                </div>
+              ` : `
+                <h1>${companyName}</h1>
+              `}
+              <p>${companyAddress}</p>
+              ${companyCity && companyPostalCode ? `<p>${companyCity}, ${companyPostalCode}</p>` : ''}
+              <p>Tel: ${companyPhone}</p>
+              ${companyEmail ? `<p>Email: ${companyEmail}</p>` : ''}
             </div>
             <div class="payslip-title">
               <h2>PAYSLIP</h2>
@@ -480,7 +499,7 @@ const PayslipView = ({ runId, userId, onClose }) => {
           <!-- Footer -->
           <div class="footer">
             <p>This is a computer-generated document. No signature is required.</p>
-            <p style="margin-top: 5px;">For queries, please contact HR at hr@lerahealth.com or +27 72 640 8996</p>
+            <p style="margin-top: 5px;">For queries, please contact HR at ${companyEmail} or ${companyPhone}</p>
             <p style="margin-top: 10px;">Generated on ${new Date().toLocaleString()}</p>
           </div>
 
@@ -529,8 +548,6 @@ const PayslipView = ({ runId, userId, onClose }) => {
   return (
     <div className="min-h-screen bg-gray-50 py-8">
       <div className="max-w-4xl mx-auto px-4">
-        {/* Action Buttons - Hide on print */}
-
         {/* Action Buttons - Hide in modal, show when standalone */}
         {!onClose && (
           <div className="flex items-center justify-between mb-6 print:hidden">
@@ -550,14 +567,6 @@ const PayslipView = ({ runId, userId, onClose }) => {
                 <Download className="w-4 h-4" />
                 Print / Save as PDF
               </button>
-
-              {/* <button
-                onClick={handleDownload}
-                className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
-              >
-                <Download className="w-4 h-4" />
-                Download PDF
-              </button> */}
             </div>
           </div>
         )}
@@ -582,48 +591,33 @@ const PayslipView = ({ runId, userId, onClose }) => {
           </div>
         )}
 
-        {/* <div className="flex items-center justify-between mb-6 print:hidden">
-          <button
-            // onClick={() => navigate(-1)}
-            onClick={onClose}
-            className="flex items-center gap-2 text-gray-600 hover:text-gray-900 transition-colors"
-          >
-            <ArrowLeft className="w-5 h-5" />
-            Back
-          </button>
-          <div className="flex gap-3">
-            <button
-              onClick={handlePrint}
-              className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
-            >
-              <Printer className="w-4 h-4" />
-              Print
-            </button>
-            <button
-              onClick={handleDownload}
-              className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
-            >
-              <Download className="w-4 h-4" />
-              Download PDF
-            </button>
-          </div>
-        </div> */}
-
         {/* Payslip Container */}
         <div className={`bg-white rounded-lg shadow-lg print:shadow-none ${onClose ? 'p-6' : 'p-8'}`}>
-        
-          
           {/* Header */}
           <div className="border-b-2 border-gray-200 pb-6 mb-6">
             <div className="flex items-start justify-between">
               <div>
                 <div className="flex items-center gap-3 mb-2">
-                  <Building2 className="w-8 h-8 text-indigo-600" />
-                  <h1 className="text-2xl font-bold text-gray-900">Lera Health</h1>
+                  {/* ✅ Show company logo if available */}
+                  {company?.branding?.logoUrl ? (
+                    <img 
+                      src={company.branding.logoUrl} 
+                      alt={company.name}
+                      className="w-12 h-12 object-contain"
+                    />
+                  ) : (
+                    <Building2 className="w-8 h-8 text-indigo-600" />
+                  )}
+                  <h1 className="text-2xl font-bold text-gray-900">{company?.name || 'Company Name'}</h1>
                 </div>
-                <p className="text-sm text-gray-600">67C Landross Mare Street</p>
-                <p className="text-sm text-gray-600">Polokwane, 0700</p>
-                <p className="text-sm text-gray-600">Tel: +27 72 640 8996</p>
+                <p className="text-sm text-gray-600">{company?.address_line1 || 'Company Address'}</p>
+                {company?.city && company?.postal_code && (
+                  <p className="text-sm text-gray-600">{company.city}, {company.postal_code}</p>
+                )}
+                <p className="text-sm text-gray-600">Tel: {company?.phone || 'N/A'}</p>
+                {company?.email && (
+                  <p className="text-sm text-gray-600">Email: {company.email}</p>
+                )}
               </div>
               <div className="text-right">
                 <h2 className="text-xl font-bold text-indigo-600 mb-2">PAYSLIP</h2>
@@ -826,7 +820,7 @@ const PayslipView = ({ runId, userId, onClose }) => {
               This is a private and confidential document.
             </p>
             <p className="text-xs text-gray-500 text-center mt-2">
-              For queries, please contact HR at lerahealthplk.com or +27 72 640 8996
+              For queries, please contact HR at {company?.email || 'hr@company.com'} or {company?.phone || 'N/A'}
             </p>
           </div>
         </div>
@@ -838,90 +832,60 @@ const PayslipView = ({ runId, userId, onClose }) => {
       </div>
 
       {/* Print Styles */}
-
-      {/* Print Styles */}
       <style>{`
         @media print {
-          /* Reset everything for print */
           body {
             background: white !important;
             margin: 0;
             padding: 0;
           }
           
-          /* Hide non-printable elements */
           .print\\:hidden {
             display: none !important;
           }
           
-          /* Show print-only elements */
           .print\\:block {
             display: block !important;
           }
           
-          /* Remove shadows and borders */
           .print\\:shadow-none {
             box-shadow: none !important;
           }
           
-          /* Ensure proper page breaks */
           .payslip-container {
             page-break-inside: avoid;
             break-inside: avoid;
           }
           
-          /* Remove modal styling for print */
           .fixed, .absolute {
             position: static !important;
           }
           
-          /* Full width for print */
           .max-w-4xl, .max-w-6xl {
             max-width: 100% !important;
           }
           
-          /* Remove padding that creates white space */
           .py-8, .p-4, .px-4 {
             padding: 0 !important;
           }
           
-          /* Ensure colors print correctly */
           * {
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
             color-adjust: exact !important;
           }
           
-          /* Page setup */
           @page {
             size: A4;
             margin: 1cm;
           }
           
-          /* Avoid breaking inside important sections */
           .bg-green-50, .bg-red-50, .bg-indigo-600 {
             page-break-inside: avoid;
             break-inside: avoid;
           }
         }
       `}</style>
-
-      {/* <style>{`
-        @media print {
-          body {
-            background: white;
-          }
-          .print\\:hidden {
-            display: none !important;
-          }
-          .print\\:block {
-            display: block !important;
-          }
-          .print\\:shadow-none {
-            box-shadow: none !important;
-          }
-        }
-      `}</style> */}
     </div>
   );
 };

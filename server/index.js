@@ -1,10 +1,11 @@
-// ✅ Set server timezone to Africa/Harare (GMT+2)
 process.env.TZ = 'Africa/Harare';
 
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import pg from 'pg';
+
+// Import pool from config instead of creating it here
+import { pool } from './config/database.js';
 
 import authRoutes from './routes/auth.routes.js';
 import userRoutes from './routes/user.routes.js';
@@ -13,7 +14,6 @@ import analyticsRoutes from './routes/analytics.routes.js';
 import exportRoutes from './routes/export.routes.js';
 import healthRoutes from './routes/health.routes.js';
 import employeeRoutes from './routes/employee.routes.js';
-
 import passwordResetRoutes from './routes/passwordReset.routes.js';
 import signupRequestRoutes from './routes/signupRequest.routes.js';
 import departmentRoutes from './routes/departments.routes.js';
@@ -22,8 +22,18 @@ import employeeProfileRoutes from './routes/employeeProfile.routes.js';
 import compensationRoutes from './routes/compensation.routes.js';
 import leaveRoutes from './routes/leave.routes.js';
 import payrollRoutes from './routes/payroll.routes.js';
+import assessmentAnalyticsRoutes from './routes/assessmentAnalytics.js';
+import assessmentRoutes from './routes/assessments.js';
+
+import companiesRoutes from './routes/companies.routes.js';
+import subscriptionRoutes from './routes/subscriptions.routes.js';
+import sopRoutes from './routes/sop.routes.js';
 
 
+import { extractTenant } from './middleware/tenantMiddleware.js';
+
+// Export pool so other files can still import from index.js if needed
+export { pool };
 
 dotenv.config();
 
@@ -36,7 +46,7 @@ app.use((req, res, next) => {
   next();
 });
 
-// ✅ CORS Configuration - Only ONE cors() call
+// ✅ CORS Configuration
 const allowedOrigins = [
   'http://localhost:5173',
   'https://attendance-tracker-app-jnxk.onrender.com',
@@ -50,39 +60,18 @@ app.use(cors({
 // Body parser middleware
 app.use(express.json());
 
-// ==================== PostgreSQL Connection ====================
-const { Pool } = pg;
-
-// Use DATABASE_URL if available (Render), otherwise use individual variables (local dev)
-export const pool = process.env.DATABASE_URL
-  ? new Pool({
-      connectionString: process.env.DATABASE_URL,
-      ssl: {
-        rejectUnauthorized: false
-      }
-    })
-  : new Pool({
-      user: process.env.DB_USER || 'postgres',
-      host: process.env.DB_HOST || 'localhost',
-      database: process.env.DB_NAME || 'attendance_db',
-      password: process.env.DB_PASSWORD || 'QweasD#123',
-      port: Number(process.env.DB_PORT) || 5432,
-    });
-
-pool.connect()
-  .then(() => console.log('✅ DB Connected'))
-  .catch((err) => console.error('❌ DB Error', err));
+// ✅ Apply tenant extraction to ALL routes (except auth registration)
+app.use('/api', extractTenant);
 
 // ==================== API Routes ====================
+app.use('/api/companies', companiesRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/attendance', attendanceRoutes);
 app.use('/api/analytics', analyticsRoutes);
-app.use('/api/export', exportRoutes);
+app.use('/api/exports', exportRoutes);
 app.use('/api/health', healthRoutes);
 app.use('/api/employees', employeeRoutes);
-
-
 app.use('/api/password-reset', passwordResetRoutes);
 app.use('/api/signup-request', signupRequestRoutes);
 app.use('/api/departments', departmentRoutes);
@@ -91,7 +80,10 @@ app.use('/api/employee-profiles', employeeProfileRoutes);
 app.use('/api/compensation', compensationRoutes);
 app.use('/api/leave', leaveRoutes);
 app.use('/api/payroll', payrollRoutes);
-
+app.use('/api/assessment-analytics', assessmentAnalyticsRoutes);
+app.use('/api/assessments', assessmentRoutes);
+app.use('/api/subscriptions', subscriptionRoutes);
+app.use('/api/sops', sopRoutes);
 
 // Health check endpoint
 app.get('/api/db-health', async (req, res) => {

@@ -1,0 +1,500 @@
+import express from 'express';
+import { pool } from '../index.js';
+import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
+import { authenticateToken } from '../middleware/permissionMiddleware.js';
+import { verifyTenantAccess } from '../middleware/tenantMiddleware.js';
+
+const router = express.Router();
+
+// ==================== PUBLIC ROUTES ====================
+
+// Register new company (public endpoint)
+router.post('/register', async (req, res) => {
+  const client = await pool.connect();
+  
+  try {
+    const {
+      companyName,
+      subdomain,
+      email,
+      password,
+      firstName,
+      lastName,
+      phone
+    } = req.body;
+
+    // ✅ Validate required fields
+    if (!companyName || !subdomain || !email || !password || !firstName || !lastName) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    // ✅ Validate subdomain format (alphanumeric and hyphens only)
+    const subdomainRegex = /^[a-z0-9-]+$/;
+    if (!subdomainRegex.test(subdomain)) {
+      return res.status(400).json({ 
+        error: 'Subdomain must contain only lowercase letters, numbers, and hyphens' 
+      });
+    }
+
+    // ✅ Validate password strength
+    if (password.length < 8) {
+      return res.status(400).json({ error: 'Password must be at least 8 characters long' });
+    }
+
+    await client.query('BEGIN');
+
+    // 1. Check if subdomain is available
+    const existingCompany = await client.query(
+      'SELECT id FROM companies WHERE subdomain = $1',
+      [subdomain.toLowerCase()]
+    );
+
+    if (existingCompany.rows.length > 0) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Subdomain already taken' });
+    }
+
+    // ✅ Check if email is already used
+    const existingEmail = await client.query(
+      'SELECT id FROM users WHERE email = $1',
+      [email]
+    );
+
+    if (existingEmail.rows.length > 0) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Email already registered' });
+    }
+
+    // 2. Create company
+    const companyResult = await client.query(
+      `INSERT INTO companies (
+        company_name, subdomain, email, phone, subscription_plan, 
+        subscription_start_date, subscription_end_date, is_active
+      ) VALUES ($1, $2, $3, $4, 'trial', CURRENT_DATE, CURRENT_DATE + INTERVAL '14 days', true)
+      RETURNING id, company_name, subdomain`,
+      [companyName, subdomain.toLowerCase(), email, phone || null]
+    );
+
+    const company = companyResult.rows[0];
+    const companyId = company.id;
+
+    console.log('✅ Company created:', company.subdomain);
+
+    // 3. Create admin user
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const userResult = await client.query(
+      `INSERT INTO users (
+        company_id, name, email, password, role
+      ) VALUES ($1, $2, $3, $4, 'admin')
+      RETURNING id, name, email, role`,
+      [companyId, `${firstName} ${lastName}`, email, hashedPassword]
+    );
+
+    const user = userResult.rows[0];
+
+    console.log('✅ Admin user created:', user.email);
+
+    // 4. Create default company settings
+    await client.query(
+      'INSERT INTO company_settings (company_id) VALUES ($1)',
+      [companyId]
+    );
+
+    // 5. Create default departments
+    await client.query(
+      `INSERT INTO departments (company_id, name, description) VALUES 
+        ($1, 'Administration', 'Administrative and management staff'),
+        ($1, 'Operations', 'Operations and support team'),
+        ($1, 'Sales', 'Sales and customer relations')`,
+      [companyId]
+    );
+
+    // ✅ 6. Create default job positions
+    await client.query(
+      `INSERT INTO job_positions (company_id, title, description) VALUES 
+        ($1, 'Administrator', 'System administrator'),
+        ($1, 'Manager', 'Department manager'),
+        ($1, 'Employee', 'General employee')`,
+      [companyId]
+    );
+
+    console.log('✅ Default data created');
+
+    await client.query('COMMIT');
+
+    // 7. Generate JWT
+    const token = jwt.sign(
+      { 
+        id: user.id, 
+        email: user.email,
+        role: user.role,
+        company_id: companyId 
+      },
+      process.env.JWT_SECRET,
+      { expiresIn: '30d' }
+    );
+
+    console.log('🎉 Company registration complete:', company.subdomain);
+
+    res.status(201).json({
+      message: 'Company registered successfully',
+      token,
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        companyId
+      },
+      company: {
+        id: companyId,
+        name: companyName,
+        subdomain: company.subdomain,
+        trialEndsAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000)
+      }
+    });
+
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Company registration error:', error);
+    res.status(500).json({ 
+      error: 'Registration failed',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  } finally {
+    client.release();
+  }
+});
+
+// Check subdomain availability (public)
+router.get('/check-subdomain/:subdomain', async (req, res) => {
+  try {
+    const { subdomain } = req.params;
+
+    const result = await pool.query(
+      'SELECT id FROM companies WHERE subdomain = $1',
+      [subdomain.toLowerCase()]
+    );
+
+    res.json({ 
+      available: result.rows.length === 0,
+      subdomain: subdomain.toLowerCase()
+    });
+  } catch (error) {
+    console.error('Check subdomain error:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ==================== PROTECTED ROUTES ====================
+
+// Get current company details
+router.get('/me', authenticateToken, verifyTenantAccess, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT 
+        c.*,
+        (SELECT COUNT(*) FROM users WHERE company_id = c.id) as employee_count,
+        (SELECT COUNT(*) FROM departments WHERE company_id = c.id) as department_count
+       FROM companies c
+       WHERE c.id = $1`,
+      [req.companyId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Company not found' });
+    }
+
+    const company = result.rows[0];
+
+    res.json({
+      id: company.id,
+      name: company.company_name,
+      subdomain: company.subdomain,
+      domain: company.domain,
+      email: company.email,
+      phone: company.phone,
+      address: {
+        line1: company.address_line1,
+        line2: company.address_line2,
+        city: company.city,
+        province: company.province,
+        postalCode: company.postal_code,
+        country: company.country
+      },
+      branding: {
+        logoUrl: company.logo_url,
+        primaryColor: company.primary_color,
+        secondaryColor: company.secondary_color
+      },
+      subscription: {
+        plan: company.subscription_plan,
+        maxEmployees: company.max_employees,
+        startDate: company.subscription_start_date,
+        endDate: company.subscription_end_date,
+        isActive: company.is_active
+      },
+      stats: {
+        employeeCount: parseInt(company.employee_count),
+        departmentCount: parseInt(company.department_count)
+      },
+      createdAt: company.created_at
+    });
+  } catch (error) {
+    console.error('Get company error:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Update company details (Admin only)
+router.put('/me', authenticateToken, verifyTenantAccess, async (req, res) => {
+  try {
+    // Check if user is admin
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Only admins can update company details' });
+    }
+
+    const {
+      companyName,
+      email,
+      phone,
+      address,
+      branding
+    } = req.body;
+
+    const updates = [];
+    const params = [req.companyId];
+    let idx = 2;
+
+    if (companyName) {
+      updates.push(`company_name = $${idx}`);
+      params.push(companyName);
+      idx++;
+    }
+
+    if (email) {
+      updates.push(`email = $${idx}`);
+      params.push(email);
+      idx++;
+    }
+
+    if (phone) {
+      updates.push(`phone = $${idx}`);
+      params.push(phone);
+      idx++;
+    }
+
+    if (address) {
+      if (address.line1) {
+        updates.push(`address_line1 = $${idx}`);
+        params.push(address.line1);
+        idx++;
+      }
+      if (address.line2 !== undefined) {
+        updates.push(`address_line2 = $${idx}`);
+        params.push(address.line2);
+        idx++;
+      }
+      if (address.city) {
+        updates.push(`city = $${idx}`);
+        params.push(address.city);
+        idx++;
+      }
+      if (address.province) {
+        updates.push(`province = $${idx}`);
+        params.push(address.province);
+        idx++;
+      }
+      if (address.postalCode) {
+        updates.push(`postal_code = $${idx}`);
+        params.push(address.postalCode);
+        idx++;
+      }
+    }
+
+    if (branding) {
+      if (branding.logoUrl !== undefined) {
+        updates.push(`logo_url = $${idx}`);
+        params.push(branding.logoUrl);
+        idx++;
+      }
+      if (branding.primaryColor) {
+        updates.push(`primary_color = $${idx}`);
+        params.push(branding.primaryColor);
+        idx++;
+      }
+      if (branding.secondaryColor) {
+        updates.push(`secondary_color = $${idx}`);
+        params.push(branding.secondaryColor);
+        idx++;
+      }
+    }
+
+    if (updates.length === 0) {
+      return res.status(400).json({ error: 'No fields to update' });
+    }
+
+    updates.push(`updated_at = NOW()`);
+
+    const query = `
+      UPDATE companies 
+      SET ${updates.join(', ')}
+      WHERE id = $1
+      RETURNING *
+    `;
+
+    const result = await pool.query(query, params);
+
+    console.log('✅ Company updated:', result.rows[0].subdomain);
+
+    res.json({
+      message: 'Company updated successfully',
+      company: result.rows[0]
+    });
+  } catch (error) {
+    console.error('Update company error:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Get company settings
+router.get('/settings', authenticateToken, verifyTenantAccess, async (req, res) => {
+  try {
+    const result = await pool.query(
+      'SELECT * FROM company_settings WHERE company_id = $1',
+      [req.companyId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Settings not found' });
+    }
+
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Get settings error:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Update company settings (Admin only)
+router.put('/settings', authenticateToken, verifyTenantAccess, async (req, res) => {
+  try {
+    // Check if user is admin
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Only admins can update settings' });
+    }
+
+    const {
+      workStartTime,
+      workEndTime,
+      timezone,
+      annualLeaveDays,
+      sickLeaveDays,
+      lateThresholdMinutes,
+      earlyLeaveThresholdMinutes,
+      requireClockOut,
+      enableEmailNotifications,
+      enableSmsNotifications,
+      features
+    } = req.body;
+
+    const updates = [];
+    const params = [req.companyId];
+    let idx = 2;
+
+    if (workStartTime) {
+      updates.push(`work_start_time = $${idx}`);
+      params.push(workStartTime);
+      idx++;
+    }
+
+    if (workEndTime) {
+      updates.push(`work_end_time = $${idx}`);
+      params.push(workEndTime);
+      idx++;
+    }
+
+    if (timezone) {
+      updates.push(`timezone = $${idx}`);
+      params.push(timezone);
+      idx++;
+    }
+
+    if (annualLeaveDays !== undefined) {
+      updates.push(`annual_leave_days = $${idx}`);
+      params.push(annualLeaveDays);
+      idx++;
+    }
+
+    if (sickLeaveDays !== undefined) {
+      updates.push(`sick_leave_days = $${idx}`);
+      params.push(sickLeaveDays);
+      idx++;
+    }
+
+    if (lateThresholdMinutes !== undefined) {
+      updates.push(`late_threshold_minutes = $${idx}`);
+      params.push(lateThresholdMinutes);
+      idx++;
+    }
+
+    if (earlyLeaveThresholdMinutes !== undefined) {
+      updates.push(`early_leave_threshold_minutes = $${idx}`);
+      params.push(earlyLeaveThresholdMinutes);
+      idx++;
+    }
+
+    if (requireClockOut !== undefined) {
+      updates.push(`require_clock_out = $${idx}`);
+      params.push(requireClockOut);
+      idx++;
+    }
+
+    if (enableEmailNotifications !== undefined) {
+      updates.push(`enable_email_notifications = $${idx}`);
+      params.push(enableEmailNotifications);
+      idx++;
+    }
+
+    if (enableSmsNotifications !== undefined) {
+      updates.push(`enable_sms_notifications = $${idx}`);
+      params.push(enableSmsNotifications);
+      idx++;
+    }
+
+    if (features) {
+      updates.push(`features = $${idx}`);
+      params.push(JSON.stringify(features));
+      idx++;
+    }
+
+    if (updates.length === 0) {
+      return res.status(400).json({ error: 'No fields to update' });
+    }
+
+    updates.push(`updated_at = NOW()`);
+
+    const query = `
+      UPDATE company_settings 
+      SET ${updates.join(', ')}
+      WHERE company_id = $1
+      RETURNING *
+    `;
+
+    const result = await pool.query(query, params);
+
+    console.log('✅ Company settings updated');
+
+    res.json({
+      message: 'Settings updated successfully',
+      settings: result.rows[0]
+    });
+  } catch (error) {
+    console.error('Update settings error:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+export default router;
