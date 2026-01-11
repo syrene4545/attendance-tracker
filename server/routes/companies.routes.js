@@ -70,10 +70,10 @@ router.post('/register', async (req, res) => {
     // 2. Create company
     const companyResult = await client.query(
       `INSERT INTO companies (
-        company_name, subdomain, email, phone, subscription_plan, 
+        name, subdomain, email, phone, subscription_plan, 
         subscription_start_date, subscription_end_date, is_active
       ) VALUES ($1, $2, $3, $4, 'trial', CURRENT_DATE, CURRENT_DATE + INTERVAL '14 days', true)
-      RETURNING id, company_name, subdomain`,
+      RETURNING id, name, subdomain`,
       [companyName, subdomain.toLowerCase(), email, phone || null]
     );
 
@@ -211,7 +211,8 @@ router.get('/me', authenticateToken, verifyTenantAccess, async (req, res) => {
 
     res.json({
       id: company.id,
-      name: company.company_name,
+    //   name: company.company_name,
+      name: company.name,  // ✅ The column is called 'name', not 'company_name'
       subdomain: company.subdomain,
       domain: company.domain,
       email: company.email,
