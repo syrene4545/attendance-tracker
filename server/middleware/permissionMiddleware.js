@@ -133,6 +133,128 @@
 //   };
 // };
 
+// import jwt from 'jsonwebtoken';
+// import { pool } from '../index.js';
+
+// // Authenticate JWT token
+// export const authenticateToken = async (req, res, next) => {
+//   try {
+//     const authHeader = req.headers.authorization;
+
+//     console.log('📨 Received Authorization header:', authHeader ? 'Present' : 'Missing');
+
+//     if (!authHeader || !authHeader.startsWith('Bearer ')) {
+//       return res.status(401).json({ error: 'Authorization token required' });
+//     }
+
+//     const token = authHeader.substring(7);
+    
+//     console.log('🔑 Extracted token:', token ? 'Present' : 'Missing');
+
+//     // Verify JWT
+//     const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    
+//     console.log('🔓 Decoded JWT:', decoded);
+
+//     // ✅ Get user from database with company check
+//     const userResult = await pool.query(
+//       `SELECT u.*, c.name as company_name, c.subdomain 
+//        FROM users u
+//        LEFT JOIN companies c ON u.company_id = c.id
+//        WHERE u.id = $1`,
+//       [decoded.id]
+//     );
+
+//     if (userResult.rows.length === 0) {
+//       console.log('❌ User not found in database:', decoded.id);
+//       return res.status(401).json({ error: 'Invalid or expired token' });
+//     }
+
+//     const user = userResult.rows[0];
+    
+//     console.log('👤 User loaded:', user.email, '| company_id:', user.company_id);
+
+//     // ✅ Attach user to request
+//     req.user = {
+//       id: user.id,
+//       email: user.email,
+//       name: user.name,
+//       role: user.role,
+//       company_id: user.company_id,
+//       companyName: user.company_name,
+//       subdomain: user.subdomain
+//     };
+
+//     next();
+//   } catch (error) {
+//     console.error('❌ Auth middleware error:', error.message);
+    
+//     if (error.name === 'JsonWebTokenError') {
+//       return res.status(401).json({ error: 'Invalid token' });
+//     }
+//     if (error.name === 'TokenExpiredError') {
+//       return res.status(401).json({ error: 'Token expired' });
+//     }
+    
+//     return res.status(401).json({ error: 'Invalid or expired token' });
+//   }
+// };
+
+// // Check if user has specific permission based on role
+// export const checkPermission = (permission) => {
+//   return (req, res, next) => {
+//     if (!req.user) {
+//       return res.status(401).json({ error: 'Authentication required' });
+//     }
+
+//     const userRole = req.user.role;
+    
+//     console.log(`🔐 Checking permission: ${permission} for role: ${userRole}`);
+
+//     const permissions = {
+//       admin: [
+//         'manage_users',
+//         'manage_attendance',
+//         'view_analytics',
+//         'manage_departments',
+//         'manage_positions',
+//         'manage_payroll',
+//         'manage_leave',
+//         'manage_company'
+//       ],
+//       hr: [
+//         'manage_users',
+//         'manage_attendance',
+//         'view_analytics',
+//         'manage_leave',
+//         'manage_payroll'
+//       ],
+//       pharmacist: [
+//         'view_own_attendance',
+//         'clock_in_out',
+//         'request_leave',
+//         'view_own_payslip'
+//       ],
+//       assistant: [
+//         'view_own_attendance',
+//         'clock_in_out',
+//         'request_leave',
+//         'view_own_payslip'
+//       ]
+//     };
+
+//     const rolePermissions = permissions[userRole] || [];
+
+//     if (!rolePermissions.includes(permission)) {
+//       console.log(`❌ Permission denied: ${userRole} does not have ${permission}`);
+//       return res.status(403).json({ error: 'Insufficient permissions' });
+//     }
+
+//     console.log(`✅ Permission granted: ${permission}`);
+//     next();
+//   };
+// };
+
 import jwt from 'jsonwebtoken';
 import { pool } from '../index.js';
 
@@ -141,22 +263,16 @@ export const authenticateToken = async (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
 
-    console.log('📨 Received Authorization header:', authHeader ? 'Present' : 'Missing');
-
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return res.status(401).json({ error: 'Authorization token required' });
     }
 
     const token = authHeader.substring(7);
-    
-    console.log('🔑 Extracted token:', token ? 'Present' : 'Missing');
 
     // Verify JWT
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    
-    console.log('🔓 Decoded JWT:', decoded);
 
-    // ✅ Get user from database with company check
+    // Get user from database with company check
     const userResult = await pool.query(
       `SELECT u.*, c.name as company_name, c.subdomain 
        FROM users u
@@ -166,15 +282,12 @@ export const authenticateToken = async (req, res, next) => {
     );
 
     if (userResult.rows.length === 0) {
-      console.log('❌ User not found in database:', decoded.id);
       return res.status(401).json({ error: 'Invalid or expired token' });
     }
 
     const user = userResult.rows[0];
-    
-    console.log('👤 User loaded:', user.email, '| company_id:', user.company_id);
 
-    // ✅ Attach user to request
+    // Attach user to request
     req.user = {
       id: user.id,
       email: user.email,
@@ -188,14 +301,14 @@ export const authenticateToken = async (req, res, next) => {
     next();
   } catch (error) {
     console.error('❌ Auth middleware error:', error.message);
-    
+
     if (error.name === 'JsonWebTokenError') {
       return res.status(401).json({ error: 'Invalid token' });
     }
     if (error.name === 'TokenExpiredError') {
       return res.status(401).json({ error: 'Token expired' });
     }
-    
+
     return res.status(401).json({ error: 'Invalid or expired token' });
   }
 };
@@ -208,11 +321,11 @@ export const checkPermission = (permission) => {
     }
 
     const userRole = req.user.role;
-    
-    console.log(`🔐 Checking permission: ${permission} for role: ${userRole}`);
 
+    // ✅ Define permissions for each role
     const permissions = {
       admin: [
+        // Admin has ALL permissions
         'manage_users',
         'manage_attendance',
         'view_analytics',
@@ -220,26 +333,40 @@ export const checkPermission = (permission) => {
         'manage_positions',
         'manage_payroll',
         'manage_leave',
-        'manage_company'
+        'manage_company',
+        'view_own_attendance',
+        'clock_in_out',
+        'request_leave',
+        'view_own_payslip',
+        'manage_assessments',
+        'manage_sops'
       ],
       hr: [
         'manage_users',
         'manage_attendance',
         'view_analytics',
         'manage_leave',
-        'manage_payroll'
+        'manage_payroll',
+        'view_own_attendance',
+        'clock_in_out',
+        'request_leave',
+        'view_own_payslip',
+        'manage_assessments',
+        'manage_sops'
       ],
       pharmacist: [
         'view_own_attendance',
         'clock_in_out',
         'request_leave',
-        'view_own_payslip'
+        'view_own_payslip',
+        'view_assessments'
       ],
       assistant: [
         'view_own_attendance',
         'clock_in_out',
         'request_leave',
-        'view_own_payslip'
+        'view_own_payslip',
+        'view_assessments'
       ]
     };
 
@@ -250,7 +377,33 @@ export const checkPermission = (permission) => {
       return res.status(403).json({ error: 'Insufficient permissions' });
     }
 
-    console.log(`✅ Permission granted: ${permission}`);
+    console.log(`✅ Permission granted: ${permission} for ${userRole}`);
     next();
   };
+};
+
+// ✅ NEW: Check if user is admin or HR
+export const isAdminOrHR = (req, res, next) => {
+  if (!req.user) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+
+  if (req.user.role !== 'admin' && req.user.role !== 'hr') {
+    return res.status(403).json({ error: 'Admin or HR access required' });
+  }
+
+  next();
+};
+
+// ✅ NEW: Check if user is admin only
+export const isAdmin = (req, res, next) => {
+  if (!req.user) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin access required' });
+  }
+
+  next();
 };
