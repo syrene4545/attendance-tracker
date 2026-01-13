@@ -1,103 +1,67 @@
-// import jwt from "jsonwebtoken";
-// import { pool } from "../index.js";
-
-// export const protect = async (req, res, next) => {
-//   let token;
-
-//   // Extract Bearer token
-//   if (
-//     req.headers.authorization &&
-//     req.headers.authorization.startsWith("Bearer")
-//   ) {
-//     token = req.headers.authorization.split(" ")[1];
-//   }
-
-//   if (!token) {
-//     return res.status(401).json({ error: "Access token required" });
-//   }
-
-//   try {
-//     // Verify JWT
-//     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-
-//     // Pull the correct user from "users" table
-//     const result = await pool.query(
-//       "SELECT id, name, email, role, department FROM users WHERE id = $1",
-//       [decoded.id]
-//     );
-
-//     if (result.rows.length === 0) {
-//       return res.status(404).json({ error: "User not found" });
-//     }
-
-//     // Attach user to request
-//     req.user = result.rows[0];
-
-//     next();
-//   } catch (err) {
-//     console.error("Auth middleware error:", err);
-//     return res.status(401).json({ error: "Invalid or expired token" });
-//   }
-// };
-
-import jwt from "jsonwebtoken";
-import { pool } from "../index.js";
+// server/middleware/authMiddleware.js
+import jwt from 'jsonwebtoken';
+import { pool } from '../index.js';
 
 export const protect = async (req, res, next) => {
-  let token;
-
-  // Extract Bearer token
-  if (
-    req.headers.authorization &&
-    req.headers.authorization.startsWith("Bearer")
-  ) {
-    token = req.headers.authorization.split(" ")[1];
-  }
-
-  if (!token) {
-    return res.status(401).json({ error: "Access token required" });
-  }
-
   try {
+    const authHeader = req.headers.authorization;
+
+    if (!authHeader?.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Access token required' });
+    }
+
+    const token = authHeader.split(' ')[1];
+    
     // Verify JWT
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-    console.log('🔓 Decoded JWT:', decoded); // ✅ Debug log
-
-    // ✅ Pull user WITH company_id from database
+    // Get user with company info (single query)
     const result = await pool.query(
       `SELECT u.id, u.name, u.email, u.role, u.department, u.company_id,
-              c.company_name, c.subdomain, c.is_active as company_active
+              c.name AS company_name, c.subdomain, c.is_active AS company_active
        FROM users u
-       LEFT JOIN companies c ON u.company_id = c.id
+       JOIN companies c ON u.company_id = c.id
        WHERE u.id = $1`,
       [decoded.id]
     );
 
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: "User not found" });
+    if (!result.rows.length) {
+      return res.status(401).json({ error: 'User not found' });
     }
 
     const user = result.rows[0];
 
-    console.log('👤 User loaded:', user.email, '| company_id:', user.company_id); // ✅ Debug log
-
-    // ✅ Check if company is active
-    if (user.company_id && !user.company_active) {
-      return res.status(403).json({ error: "Company account is inactive" });
+    // Check if company is active
+    if (!user.company_active) {
+      return res.status(403).json({ error: 'Company account is inactive' });
     }
 
-    // ✅ Ensure user has a company_id
-    if (!user.company_id) {
-      console.error('❌ User has no company_id:', user.email);
-      return res.status(403).json({ error: "User not associated with any company" });
-    }
+    // Attach complete user object to request
+    req.user = {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      department: user.department,
+      company_id: user.company_id,
+      company_name: user.company_name,
+      subdomain: user.subdomain,
+      company_active: user.company_active
+    };
 
-    // Attach user to request
-    req.user = user;
+    console.log(`✅ User authenticated: ${user.email} | Role: ${user.role} | Company: ${user.company_id}`);
+    
     next();
   } catch (err) {
-    console.error("Auth middleware error:", err);
-    return res.status(401).json({ error: "Invalid or expired token" });
+    console.error('❌ Auth error:', err.message);
+    
+    if (err.name === 'JsonWebTokenError') {
+      return res.status(401).json({ error: 'Invalid token' });
+    }
+    if (err.name === 'TokenExpiredError') {
+      return res.status(401).json({ error: 'Token expired' });
+    }
+    
+    return res.status(401).json({ error: 'Invalid or expired token' });
   }
 };
