@@ -66,14 +66,28 @@ router.post('/register', async (req, res) => {
       return res.status(400).json({ error: 'Email already registered' });
     }
 
-    // 3. Create company
+    // 3. Create company with JSON columns
     const companyResult = await client.query(
       `INSERT INTO companies (
         name, subdomain, email, phone, subscription_plan, 
-        subscription_start_date, subscription_end_date, is_active
-      ) VALUES ($1, $2, $3, $4, 'trial', CURRENT_DATE, CURRENT_DATE + INTERVAL '14 days', true)
+        subscription_start_date, subscription_end_date, is_active,
+        address, branding, settings, features
+      ) VALUES (
+        $1, $2, $3, $4, 'trial', 
+        CURRENT_DATE, CURRENT_DATE + INTERVAL '14 days', true,
+        $5::jsonb, $6::jsonb, $7::jsonb, $8::jsonb
+      )
       RETURNING id, name, subdomain`,
-      [companyName, subdomain.toLowerCase(), email, phone || null]
+      [
+        companyName, 
+        subdomain.toLowerCase(), 
+        email, 
+        phone || null,
+        JSON.stringify({}), // address
+        JSON.stringify({ primaryColor: '#4f46e5', secondaryColor: '#7c3aed' }), // branding
+        JSON.stringify({}), // settings
+        JSON.stringify({}) // features
+      ]
     );
 
     const company = companyResult.rows[0];
@@ -194,7 +208,7 @@ router.use(protect);           // 1️⃣ Authenticate user
 router.use(extractTenant);     // 2️⃣ Extract tenant context
 router.use(verifyTenantAccess); // 3️⃣ Verify tenant access
 
-// Get current company details
+// ✅ FIXED: Get current company details (reads JSON columns properly)
 router.get('/me', async (req, res) => {
   try {
     const result = await pool.query(
@@ -213,6 +227,23 @@ router.get('/me', async (req, res) => {
 
     const company = result.rows[0];
 
+    // ✅ FIX: Parse JSON columns properly
+    const address = typeof company.address === 'string' 
+      ? JSON.parse(company.address) 
+      : company.address || {};
+    
+    const branding = typeof company.branding === 'string'
+      ? JSON.parse(company.branding)
+      : company.branding || {};
+    
+    const settings = typeof company.settings === 'string'
+      ? JSON.parse(company.settings)
+      : company.settings || {};
+    
+    const features = typeof company.features === 'string'
+      ? JSON.parse(company.features)
+      : company.features || {};
+
     res.json({
       id: company.id,
       name: company.name,
@@ -220,19 +251,10 @@ router.get('/me', async (req, res) => {
       domain: company.domain,
       email: company.email,
       phone: company.phone,
-      address: {
-        line1: company.address_line1,
-        line2: company.address_line2,
-        city: company.city,
-        province: company.province,
-        postalCode: company.postal_code,
-        country: company.country
-      },
-      branding: {
-        logoUrl: company.logo_url,
-        primaryColor: company.primary_color,
-        secondaryColor: company.secondary_color
-      },
+      address: address, // ✅ Already parsed JSON
+      branding: branding, // ✅ Already parsed JSON
+      settings: settings, // ✅ Already parsed JSON
+      features: features, // ✅ Already parsed JSON
       subscription: {
         plan: company.subscription_plan,
         maxEmployees: company.max_employees,
@@ -248,11 +270,14 @@ router.get('/me', async (req, res) => {
     });
   } catch (error) {
     console.error('Get company error:', error);
-    res.status(500).json({ error: 'Server error' });
+    res.status(500).json({ 
+      error: 'Server error',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   }
 });
 
-// Update company details (Admin only)
+// ✅ FIXED: Update company details (Admin only) - writes JSON columns properly
 router.put('/me', async (req, res) => {
   try {
     // Check if user is admin
@@ -284,61 +309,24 @@ router.put('/me', async (req, res) => {
       idx++;
     }
 
-    if (phone) {
+    if (phone !== undefined) {
       updates.push(`phone = $${idx}`);
       params.push(phone);
       idx++;
     }
 
+    // ✅ FIX: Update address as JSON
     if (address) {
-      if (address.line1) {
-        updates.push(`address_line1 = $${idx}`);
-        params.push(address.line1);
-        idx++;
-      }
-      if (address.line2 !== undefined) {
-        updates.push(`address_line2 = $${idx}`);
-        params.push(address.line2);
-        idx++;
-      }
-      if (address.city) {
-        updates.push(`city = $${idx}`);
-        params.push(address.city);
-        idx++;
-      }
-      if (address.province) {
-        updates.push(`province = $${idx}`);
-        params.push(address.province);
-        idx++;
-      }
-      if (address.postalCode) {
-        updates.push(`postal_code = $${idx}`);
-        params.push(address.postalCode);
-        idx++;
-      }
-      if (address.country) {
-        updates.push(`country = $${idx}`);
-        params.push(address.country);
-        idx++;
-      }
+      updates.push(`address = $${idx}::jsonb`);
+      params.push(JSON.stringify(address));
+      idx++;
     }
 
+    // ✅ FIX: Update branding as JSON
     if (branding) {
-      if (branding.logoUrl !== undefined) {
-        updates.push(`logo_url = $${idx}`);
-        params.push(branding.logoUrl);
-        idx++;
-      }
-      if (branding.primaryColor) {
-        updates.push(`primary_color = $${idx}`);
-        params.push(branding.primaryColor);
-        idx++;
-      }
-      if (branding.secondaryColor) {
-        updates.push(`secondary_color = $${idx}`);
-        params.push(branding.secondaryColor);
-        idx++;
-      }
+      updates.push(`branding = $${idx}::jsonb`);
+      params.push(JSON.stringify(branding));
+      idx++;
     }
 
     if (updates.length === 0) {
@@ -364,7 +352,10 @@ router.put('/me', async (req, res) => {
     });
   } catch (error) {
     console.error('Update company error:', error);
-    res.status(500).json({ error: 'Server error' });
+    res.status(500).json({ 
+      error: 'Server error',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   }
 });
 
@@ -388,7 +379,10 @@ router.get('/settings', async (req, res) => {
     res.json(result.rows[0]);
   } catch (error) {
     console.error('Get settings error:', error);
-    res.status(500).json({ error: 'Server error' });
+    res.status(500).json({ 
+      error: 'Server error',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   }
 });
 
@@ -479,7 +473,7 @@ router.put('/settings', async (req, res) => {
     }
 
     if (features) {
-      updates.push(`features = $${idx}`);
+      updates.push(`features = $${idx}::jsonb`);
       params.push(JSON.stringify(features));
       idx++;
     }
@@ -507,7 +501,10 @@ router.put('/settings', async (req, res) => {
     });
   } catch (error) {
     console.error('Update settings error:', error);
-    res.status(500).json({ error: 'Server error' });
+    res.status(500).json({ 
+      error: 'Server error',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   }
 });
 
