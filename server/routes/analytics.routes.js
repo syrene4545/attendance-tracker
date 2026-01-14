@@ -1,81 +1,15 @@
-// import express from 'express';
-// import { pool } from '../index.js';
-// import { authenticateToken, checkPermission } from '../middleware/permissionMiddleware.js';
-
-// const router = express.Router();
-
-// // ==================== ANALYTICS ROUTES ====================
-
-// // Get analytics (Admin/HR only)
-// router.get('/', authenticateToken, checkPermission('view_analytics'), async (req, res) => {
-//   try {
-//     const { startDate, endDate } = req.query;
-
-//     // Total events
-//     const totalEventsQuery = `
-//       SELECT COUNT(*) as total 
-//       FROM attendance_logs 
-//       WHERE timestamp >= $1 AND timestamp <= $2
-//     `;
-//     const totalEvents = await pool.query(totalEventsQuery, [startDate || '2000-01-01', endDate || '2100-01-01']);
-
-//     // Late check-ins (after 9:15 AM)
-//     const lateCheckinsQuery = `
-//       SELECT COUNT(*) as total 
-//       FROM attendance_logs 
-//       WHERE type = 'sign-in' 
-//         AND (
-//           EXTRACT(HOUR FROM timestamp) > 9 
-//           OR (EXTRACT(HOUR FROM timestamp) = 9 AND EXTRACT(MINUTE FROM timestamp) > 15)
-//         )
-//         AND timestamp >= $1 AND timestamp <= $2
-//     `;
-//     const lateCheckins = await pool.query(lateCheckinsQuery, [startDate || '2000-01-01', endDate || '2100-01-01']);
-
-//     // On-time percentage
-//     const signInsQuery = `
-//       SELECT COUNT(*) as total 
-//       FROM attendance_logs 
-//       WHERE type = 'sign-in'
-//         AND timestamp >= $1 AND timestamp <= $2
-//     `;
-//     const signIns = await pool.query(signInsQuery, [startDate || '2000-01-01', endDate || '2100-01-01']);
-//     const onTimePercentage = signIns.rows[0].total > 0 
-//       ? ((signIns.rows[0].total - lateCheckins.rows[0].total) / signIns.rows[0].total * 100).toFixed(1)
-//       : 0;
-
-//     // Role breakdown
-//     const roleBreakdownQuery = `
-//       SELECT role, COUNT(*) as count 
-//       FROM users 
-//       GROUP BY role
-//     `;
-//     const roleBreakdown = await pool.query(roleBreakdownQuery);
-
-//     res.json({
-//       totalEvents: parseInt(totalEvents.rows[0].total),
-//       lateCheckins: parseInt(lateCheckins.rows[0].total),
-//       onTimePercentage: parseFloat(onTimePercentage),
-//       roleBreakdown: roleBreakdown.rows,
-//     });
-//   } catch (error) {
-//     console.error('Get analytics error:', error);
-//     res.status(500).json({ error: 'Internal server error' });
-//   }
-// });
-
-// export default router;
-
 import express from 'express';
 import { pool } from '../index.js';
-import { authenticateToken, checkPermission } from '../middleware/permissionMiddleware.js';
-import { verifyTenantAccess } from '../middleware/tenantMiddleware.js';
+import { protect } from '../middleware/authMiddleware.js';
+import { checkPermission } from '../middleware/permissionMiddleware.js';
+import { extractTenant, verifyTenantAccess } from '../middleware/tenantMiddleware.js';
 
 const router = express.Router();
 
-// ✅ Apply tenant middleware to all routes
-router.use(authenticateToken);
-router.use(verifyTenantAccess);
+// ✅ Apply authentication and tenant extraction to ALL routes
+router.use(protect);           // 1️⃣ Authenticate user
+router.use(extractTenant);     // 2️⃣ Extract tenant context
+router.use(verifyTenantAccess); // 3️⃣ Verify tenant access
 
 // ==================== ANALYTICS ROUTES ====================
 
@@ -83,7 +17,7 @@ router.use(verifyTenantAccess);
 router.get('/', checkPermission('view_analytics'), async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
-    const companyId = req.companyId; // ✅ Get from tenant middleware
+    const companyId = req.companyId;
 
     console.log(`📊 Fetching analytics for company_id: ${companyId}`);
 
@@ -91,7 +25,7 @@ router.get('/', checkPermission('view_analytics'), async (req, res) => {
     const start = startDate || '2000-01-01';
     const end = endDate || '2100-01-01';
 
-    // ✅ Total events (filtered by company)
+    // Total events (filtered by company)
     const totalEventsQuery = `
       SELECT COUNT(*) as total 
       FROM attendance_logs 
@@ -101,7 +35,7 @@ router.get('/', checkPermission('view_analytics'), async (req, res) => {
     `;
     const totalEvents = await pool.query(totalEventsQuery, [companyId, start, end]);
 
-    // ✅ Late check-ins (after 9:15 AM) - filtered by company
+    // Late check-ins (after 9:15 AM) - filtered by company
     const lateCheckinsQuery = `
       SELECT COUNT(*) as total 
       FROM attendance_logs 
@@ -119,7 +53,7 @@ router.get('/', checkPermission('view_analytics'), async (req, res) => {
     `;
     const lateCheckins = await pool.query(lateCheckinsQuery, [companyId, start, end]);
 
-    // ✅ Total sign-ins (filtered by company)
+    // Total sign-ins (filtered by company)
     const signInsQuery = `
       SELECT COUNT(*) as total 
       FROM attendance_logs 
@@ -137,7 +71,7 @@ router.get('/', checkPermission('view_analytics'), async (req, res) => {
       ? ((totalSignIns - totalLate) / totalSignIns * 100).toFixed(1)
       : 0;
 
-    // ✅ Role breakdown (filtered by company)
+    // Role breakdown (filtered by company)
     const roleBreakdownQuery = `
       SELECT role, COUNT(*) as count 
       FROM users 
@@ -147,7 +81,7 @@ router.get('/', checkPermission('view_analytics'), async (req, res) => {
     `;
     const roleBreakdown = await pool.query(roleBreakdownQuery, [companyId]);
 
-    // ✅ Additional analytics - Active employees
+    // Active employees
     const activeEmployeesQuery = `
       SELECT COUNT(DISTINCT user_id) as count
       FROM attendance_logs
@@ -157,7 +91,7 @@ router.get('/', checkPermission('view_analytics'), async (req, res) => {
     `;
     const activeEmployees = await pool.query(activeEmployeesQuery, [companyId, start, end]);
 
-    // ✅ Average daily attendance
+    // Average daily attendance
     const avgDailyAttendanceQuery = `
       SELECT 
         DATE(timestamp AT TIME ZONE 'Africa/Harare') as date,
@@ -205,7 +139,13 @@ router.get('/trends', checkPermission('view_analytics'), async (req, res) => {
     const { days = 30 } = req.query;
     const companyId = req.companyId;
 
-    // ✅ Get daily attendance trends (filtered by company)
+    // Validate days parameter
+    const daysInt = parseInt(days);
+    if (isNaN(daysInt) || daysInt < 1 || daysInt > 365) {
+      return res.status(400).json({ error: 'Invalid days parameter (1-365)' });
+    }
+
+    // Get daily attendance trends (filtered by company)
     const trendsQuery = `
       SELECT 
         DATE(timestamp AT TIME ZONE 'Africa/Harare') as date,
@@ -214,13 +154,13 @@ router.get('/trends', checkPermission('view_analytics'), async (req, res) => {
         COUNT(DISTINCT user_id) as unique_users
       FROM attendance_logs
       WHERE company_id = $1
-        AND timestamp >= NOW() - INTERVAL '${parseInt(days)} days'
+        AND timestamp >= NOW() - INTERVAL '1 day' * $2
       GROUP BY DATE(timestamp AT TIME ZONE 'Africa/Harare')
       ORDER BY date DESC
       LIMIT $2
     `;
     
-    const trends = await pool.query(trendsQuery, [companyId, parseInt(days)]);
+    const trends = await pool.query(trendsQuery, [companyId, daysInt]);
 
     res.json({
       trends: trends.rows.map(row => ({
@@ -245,7 +185,7 @@ router.get('/performance', checkPermission('view_analytics'), async (req, res) =
     const start = startDate || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
     const end = endDate || new Date().toISOString().split('T')[0];
 
-    // ✅ Get employee performance metrics (filtered by company)
+    // Get employee performance metrics (filtered by company)
     const performanceQuery = `
       SELECT 
         u.id,
@@ -287,7 +227,7 @@ router.get('/performance', checkPermission('view_analytics'), async (req, res) =
         daysAttended: parseInt(row.days_attended),
         onTimeRate: row.total_sign_ins > 0 
           ? (((row.total_sign_ins - row.late_arrivals) / row.total_sign_ins) * 100).toFixed(1)
-          : 0
+          : '0'
       })),
       dateRange: { start, end }
     });

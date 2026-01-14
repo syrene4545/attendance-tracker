@@ -1,89 +1,20 @@
-// import express from 'express';
-// import { pool } from '../index.js';
-// import { authenticateToken, checkPermission } from '../middleware/permissionMiddleware.js';
-
-// const router = express.Router();
-
-// // ==================== EXPORT ROUTES ====================
-
-// // Export to CSV (Admin/HR only) - Africa/Harare timezone
-// router.get('/csv', authenticateToken, checkPermission('export_data'), async (req, res) => {
-//   try {
-//     const { startDate, endDate } = req.query;
-
-//     console.log('📥 CSV Export Request:', { startDate, endDate });
-
-//     // Add time to date range to capture full day
-//     const start = startDate ? `${startDate} 00:00:00` : '2000-01-01 00:00:00';
-//     const end = endDate ? `${endDate} 23:59:59` : '2100-01-01 23:59:59';
-
-//     console.log('📅 Date range:', { start, end });
-
-//     // ✅ Convert all timestamps to Africa/Harare timezone
-//     const query = `
-//       SELECT 
-//         TO_CHAR(a.timestamp AT TIME ZONE 'Africa/Harare', 'YYYY-MM-DD') as date,
-//         u.name as employee,
-//         a.type as event_type,
-//         TO_CHAR(a.timestamp AT TIME ZONE 'Africa/Harare', 'HH24:MI:SS') as time,
-//         a.location,
-//         CASE WHEN a.edited THEN 'Yes' ELSE 'No' END as edited
-//       FROM attendance_logs a
-//       JOIN users u ON a.user_id = u.id
-//       WHERE (a.timestamp AT TIME ZONE 'Africa/Harare')::timestamp >= $1::timestamp 
-//         AND (a.timestamp AT TIME ZONE 'Africa/Harare')::timestamp <= $2::timestamp
-//       ORDER BY a.timestamp DESC
-//     `;
-
-//     const result = await pool.query(query, [start, end]);
-
-//     console.log(`📊 Query returned ${result.rows.length} rows`);
-
-//     if (result.rows.length === 0) {
-//       console.log('⚠️ No data found for export');
-//       // Return empty CSV with headers only
-//       const csvHeader = 'Date (GMT+2),Employee,Event Type,Time (GMT+2),Location,Edited\n';
-//       res.setHeader('Content-Type', 'text/csv');
-//       res.setHeader('Content-Disposition', 'attachment; filename=attendance-report.csv');
-//       return res.send(csvHeader);
-//     }
-
-//     // Create CSV with timezone info in header
-//     const csvHeader = 'Date (GMT+2),Employee,Event Type,Time (GMT+2),Location,Edited\n';
-//     const csvRows = result.rows.map(row => 
-//       `${row.date},${row.employee},${row.event_type},${row.time},${row.location || 'N/A'},${row.edited}`
-//     ).join('\n');
-
-//     const csv = csvHeader + csvRows;
-
-//     console.log(`✅ CSV generated successfully (${csv.length} bytes)`);
-
-//     res.setHeader('Content-Type', 'text/csv');
-//     res.setHeader('Content-Disposition', `attachment; filename=attendance-report-${startDate || 'all'}.csv`);
-//     res.send(csv);
-//   } catch (error) {
-//     console.error('❌ Export CSV error:', error);
-//     res.status(500).json({ error: 'Internal server error' });
-//   }
-// });
-
-// export default router;
-
 import express from 'express';
 import { pool } from '../index.js';
-import { authenticateToken, checkPermission } from '../middleware/permissionMiddleware.js';
-import { verifyTenantAccess } from '../middleware/tenantMiddleware.js';
+import { protect } from '../middleware/authMiddleware.js';
+import { checkPermission } from '../middleware/permissionMiddleware.js';
+import { extractTenant, verifyTenantAccess } from '../middleware/tenantMiddleware.js';
 
 const router = express.Router();
 
-// ✅ Apply authentication and tenant verification to all routes
-router.use(authenticateToken);
-router.use(verifyTenantAccess);
+// ✅ Apply authentication and tenant extraction to ALL routes
+router.use(protect);           // 1️⃣ Authenticate user
+router.use(extractTenant);     // 2️⃣ Extract tenant context
+router.use(verifyTenantAccess); // 3️⃣ Verify tenant access
 
 // ==================== EXPORT ROUTES ====================
 
 // Export to CSV (Admin/HR only) - Africa/Harare timezone
-router.get('/csv', checkPermission('export_data'), async (req, res) => {
+router.get('/csv', checkPermission('view_analytics'), async (req, res) => {
   try {
     const companyId = req.companyId;
     const { startDate, endDate } = req.query;
@@ -96,7 +27,7 @@ router.get('/csv', checkPermission('export_data'), async (req, res) => {
 
     console.log('📅 Date range:', { start, end });
 
-    // ✅ Filter by company_id and convert all timestamps to Africa/Harare timezone
+    // Filter by company_id and convert all timestamps to Africa/Harare timezone
     const query = `
       SELECT 
         TO_CHAR(a.timestamp AT TIME ZONE 'Africa/Harare', 'YYYY-MM-DD') as date,
@@ -146,8 +77,8 @@ router.get('/csv', checkPermission('export_data'), async (req, res) => {
   }
 });
 
-// ✅ Export employee data to CSV (Admin/HR only)
-router.get('/employees/csv', checkPermission('export_data'), async (req, res) => {
+// Export employee data to CSV (Admin/HR only)
+router.get('/employees/csv', checkPermission('view_analytics'), async (req, res) => {
   try {
     const companyId = req.companyId;
     const { department_id, employment_status } = req.query;
@@ -156,39 +87,38 @@ router.get('/employees/csv', checkPermission('export_data'), async (req, res) =>
 
     let query = `
       SELECT 
-        ep.employee_number as "Employee Number",
-        CONCAT(ep.first_name, ' ', ep.last_name) as "Full Name",
+        u.employee_number as "Employee Number",
+        u.name as "Full Name",
         u.email as "Email",
         d.name as "Department",
         jp.title as "Job Title",
-        ep.employment_type as "Employment Type",
-        ep.employment_status as "Status",
-        TO_CHAR(ep.hire_date, 'YYYY-MM-DD') as "Hire Date",
-        ep.phone_number as "Phone",
-        ep.work_location as "Work Location"
-      FROM employee_profiles ep
-      JOIN users u ON ep.user_id = u.id
-      LEFT JOIN departments d ON ep.department_id = d.id
-      LEFT JOIN job_positions jp ON ep.job_position_id = jp.id
-      WHERE ep.company_id = $1 AND u.company_id = $1
+        u.employment_type as "Employment Type",
+        u.employment_status as "Status",
+        TO_CHAR(u.hire_date, 'YYYY-MM-DD') as "Hire Date",
+        u.phone_number as "Phone",
+        u.work_location as "Work Location"
+      FROM users u
+      LEFT JOIN departments d ON u.department_id = d.id AND d.company_id = $1
+      LEFT JOIN job_positions jp ON u.job_position_id = jp.id AND jp.company_id = $1
+      WHERE u.company_id = $1
     `;
 
     const params = [companyId];
     let paramIndex = 2;
 
     if (department_id) {
-      query += ` AND ep.department_id = $${paramIndex}`;
+      query += ` AND u.department_id = $${paramIndex}`;
       params.push(department_id);
       paramIndex++;
     }
 
     if (employment_status) {
-      query += ` AND ep.employment_status = $${paramIndex}`;
+      query += ` AND u.employment_status = $${paramIndex}`;
       params.push(employment_status);
       paramIndex++;
     }
 
-    query += ` ORDER BY ep.first_name ASC, ep.last_name ASC`;
+    query += ` ORDER BY u.name ASC`;
 
     const result = await pool.query(query, params);
 
@@ -220,8 +150,8 @@ router.get('/employees/csv', checkPermission('export_data'), async (req, res) =>
   }
 });
 
-// ✅ Export leave requests to CSV (Admin/HR only)
-router.get('/leave/csv', checkPermission('export_data'), async (req, res) => {
+// Export leave requests to CSV (Admin/HR only)
+router.get('/leave/csv', checkPermission('view_analytics'), async (req, res) => {
   try {
     const companyId = req.companyId;
     const { startDate, endDate, status } = req.query;
@@ -231,7 +161,7 @@ router.get('/leave/csv', checkPermission('export_data'), async (req, res) => {
     let query = `
       SELECT 
         u.name as "Employee Name",
-        ep.employee_number as "Employee Number",
+        u.employee_number as "Employee Number",
         lr.leave_type as "Leave Type",
         TO_CHAR(lr.start_date, 'YYYY-MM-DD') as "Start Date",
         TO_CHAR(lr.end_date, 'YYYY-MM-DD') as "End Date",
@@ -242,7 +172,6 @@ router.get('/leave/csv', checkPermission('export_data'), async (req, res) => {
         TO_CHAR(lr.reviewed_at, 'YYYY-MM-DD') as "Review Date"
       FROM leave_requests lr
       JOIN users u ON lr.user_id = u.id
-      LEFT JOIN employee_profiles ep ON lr.user_id = ep.user_id
       LEFT JOIN users approver ON lr.reviewed_by = approver.id
       WHERE lr.company_id = $1 AND u.company_id = $1
     `;
@@ -300,8 +229,8 @@ router.get('/leave/csv', checkPermission('export_data'), async (req, res) => {
   }
 });
 
-// ✅ Export payroll data to CSV (Admin/HR only)
-router.get('/payroll/csv', checkPermission('export_data'), async (req, res) => {
+// Export payroll data to CSV (Admin/HR only)
+router.get('/payroll/csv', checkPermission('view_analytics'), async (req, res) => {
   try {
     const companyId = req.companyId;
     const { month, year } = req.query;
@@ -311,7 +240,7 @@ router.get('/payroll/csv', checkPermission('export_data'), async (req, res) => {
     const query = `
       SELECT 
         u.name as "Employee Name",
-        ep.employee_number as "Employee Number",
+        u.employee_number as "Employee Number",
         d.name as "Department",
         ec.base_salary as "Base Salary",
         ec.salary_type as "Salary Type",
@@ -319,12 +248,11 @@ router.get('/payroll/csv', checkPermission('export_data'), async (req, res) => {
         ec.currency as "Currency"
       FROM employee_compensation ec
       JOIN users u ON ec.user_id = u.id
-      LEFT JOIN employee_profiles ep ON ec.user_id = ep.user_id
-      LEFT JOIN departments d ON ep.department_id = d.id
+      LEFT JOIN departments d ON u.department_id = d.id AND d.company_id = $1
       WHERE ec.is_current = true 
         AND ec.company_id = $1 
         AND u.company_id = $1
-        AND ep.employment_status = 'active'
+        AND u.employment_status = 'active'
       ORDER BY d.name ASC, u.name ASC
     `;
 

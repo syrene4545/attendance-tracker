@@ -1,18 +1,123 @@
 // server/routes/employeeProfile.routes.js
 import express from 'express';
 import { pool } from '../index.js';
-import { authenticateToken, checkPermission } from '../middleware/permissionMiddleware.js';
-import { verifyTenantAccess } from '../middleware/tenantMiddleware.js';
+import { protect } from '../middleware/authMiddleware.js';
+import { checkPermission } from '../middleware/permissionMiddleware.js';
+import { extractTenant, verifyTenantAccess } from '../middleware/tenantMiddleware.js';
 import { body, validationResult } from 'express-validator';
 import bcrypt from 'bcryptjs';
 
 const router = express.Router();
 
-// ✅ Apply authentication and tenant verification to all routes
-router.use(authenticateToken);
-router.use(verifyTenantAccess);
+// ✅ Apply authentication and tenant extraction to ALL routes
+router.use(protect);           // 1️⃣ Authenticate user
+router.use(extractTenant);     // 2️⃣ Extract tenant context
+router.use(verifyTenantAccess); // 3️⃣ Verify tenant access
 
 // ==================== EMPLOYEE PROFILE ROUTES ====================
+
+// Get employee statistics - MUST BE BEFORE /:userId
+router.get('/stats/overview', async (req, res) => {
+  try {
+    const companyId = req.companyId;
+    
+    // Total employees in company
+    const total = await pool.query(
+      'SELECT COUNT(*) as count FROM users WHERE company_id = $1',
+      [companyId]
+    );
+    
+    // By status (scoped to company)
+    const statusStats = await pool.query(
+      `SELECT 
+        employment_status,
+        COUNT(*) as count
+      FROM users
+      WHERE company_id = $1
+      GROUP BY employment_status`,
+      [companyId]
+    );
+    
+    const byStatus = {};
+    statusStats.rows.forEach(row => {
+      byStatus[row.employment_status] = parseInt(row.count);
+    });
+    
+    // By department (scoped to company)
+    const deptStats = await pool.query(
+      `SELECT 
+        d.name as department,
+        COUNT(u.id) as count
+      FROM departments d
+      LEFT JOIN users u ON u.department_id = d.id AND u.company_id = $1
+      WHERE d.company_id = $1
+      GROUP BY d.name
+      ORDER BY count DESC`,
+      [companyId]
+    );
+    
+    // By employment type (scoped to company)
+    const typeStats = await pool.query(
+      `SELECT 
+        employment_type,
+        COUNT(*) as count
+      FROM users
+      WHERE company_id = $1
+      GROUP BY employment_type`,
+      [companyId]
+    );
+    
+    res.json({
+      totalEmployees: parseInt(total.rows[0].count),
+      byStatus,
+      byDepartment: deptStats.rows,
+      byEmploymentType: typeStats.rows
+    });
+  } catch (error) {
+    console.error('❌ Get employee statistics error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Search employees (for quick lookup) - MUST BE BEFORE /:userId
+router.get('/search/quick', async (req, res) => {
+  try {
+    const companyId = req.companyId;
+    const { q } = req.query;
+    
+    if (!q || q.length < 2) {
+      return res.status(400).json({ error: 'Search query too short (minimum 2 characters)' });
+    }
+    
+    const result = await pool.query(
+      `SELECT 
+        u.id as "userId",
+        u.employee_number as "employeeNumber",
+        u.name,
+        u.email,
+        d.name as "departmentName",
+        jp.title as "jobTitle"
+      FROM users u
+      LEFT JOIN departments d ON u.department_id = d.id AND d.company_id = $2
+      LEFT JOIN job_positions jp ON u.job_position_id = jp.id AND jp.company_id = $2
+      WHERE (
+        LOWER(u.name) LIKE LOWER($1)
+        OR LOWER(u.employee_number) LIKE LOWER($1)
+        OR LOWER(u.email) LIKE LOWER($1)
+      )
+      AND u.employment_status = 'active'
+      AND u.company_id = $2
+      ORDER BY u.name ASC
+      LIMIT 10`,
+      [`%${q}%`, companyId]
+    );
+    
+    res.json({ results: result.rows });
+  } catch (error) {
+    console.error('❌ Quick search error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
 
 // Get all employee profiles
 router.get('/', async (req, res) => {
@@ -153,7 +258,7 @@ router.get('/:userId', async (req, res) => {
     // Check permissions
     const canViewAll = ['admin', 'hr'].includes(req.user.role);
     
-    // ✅ Verify user belongs to same company
+    // Verify user belongs to same company
     const userCheck = await pool.query(
       'SELECT id FROM users WHERE id = $1 AND company_id = $2',
       [userId, companyId]
@@ -168,7 +273,7 @@ router.get('/:userId', async (req, res) => {
       return res.status(403).json({ error: 'Access denied' });
     }
     
-    // ✅ Get full employee profile
+    // Get full employee profile
     const query = `
       SELECT 
         u.id as "userId",
@@ -229,7 +334,7 @@ router.get('/:userId', async (req, res) => {
     
     const employee = result.rows[0];
     
-    // ✅ Get leave balances (filter by company)
+    // Get leave balances (filter by company)
     const leaveBalances = await pool.query(
       `SELECT 
         leave_type as "leaveType",
@@ -255,7 +360,7 @@ router.get('/:userId', async (req, res) => {
 // Create new employee profile
 router.post(
   '/',
-  checkPermission('manage_employees'),
+  checkPermission('manage_users'),
   body('email').isEmail().normalizeEmail(),
   body('password').optional().isLength({ min: 6 }),
   body('firstName').trim().notEmpty(),
@@ -317,7 +422,7 @@ router.post(
         notes
       } = req.body;
       
-      // ✅ Check if email already exists in same company
+      // Check if email already exists in same company
       const emailExists = await pool.query(
         'SELECT id FROM users WHERE email = $1 AND company_id = $2',
         [email, companyId]
@@ -327,7 +432,7 @@ router.post(
         return res.status(400).json({ error: 'Email already exists' });
       }
       
-      // ✅ Check if employee number already exists in same company
+      // Check if employee number already exists in same company
       const empNumExists = await pool.query(
         'SELECT id FROM users WHERE employee_number = $1 AND company_id = $2',
         [employeeNumber, companyId]
@@ -337,7 +442,7 @@ router.post(
         return res.status(400).json({ error: 'Employee number already exists' });
       }
       
-      // ✅ Validate department exists in same company
+      // Validate department exists in same company
       if (departmentId) {
         const deptExists = await pool.query(
           'SELECT id FROM departments WHERE id = $1 AND company_id = $2',
@@ -349,7 +454,7 @@ router.post(
         }
       }
       
-      // ✅ Validate job position exists in same company
+      // Validate job position exists in same company
       if (jobPositionId) {
         const posExists = await pool.query(
           'SELECT id FROM job_positions WHERE id = $1 AND company_id = $2',
@@ -365,7 +470,7 @@ router.post(
       await pool.query('BEGIN');
       
       try {
-        // ✅ Create user account with all fields
+        // Create user account with all fields
         const hashedPassword = await bcrypt.hash(password, 10);
         
         const userResult = await pool.query(
@@ -413,7 +518,7 @@ router.post(
         
         const userId = userResult.rows[0].id;
         
-        // ✅ Initialize leave balances
+        // Initialize leave balances
         const currentYear = new Date().getFullYear();
         await pool.query(
           `INSERT INTO leave_balances (user_id, leave_type, total_days, remaining_days, year)
@@ -464,7 +569,7 @@ router.put('/:userId', async (req, res) => {
     const companyId = req.companyId;
     const updates = req.body;
     
-    // ✅ Verify user belongs to same company
+    // Verify user belongs to same company
     const userCheck = await pool.query(
       'SELECT id, role FROM users WHERE id = $1 AND company_id = $2',
       [userId, companyId]
@@ -604,7 +709,7 @@ router.put('/:userId', async (req, res) => {
 // Update employment status (terminate, suspend, reactivate)
 router.put(
   '/:userId/status',
-  checkPermission('manage_employees'),
+  checkPermission('manage_users'),
   body('status').isIn(['active', 'on-leave', 'suspended', 'terminated']),
   body('reason').optional().trim(),
   body('effectiveDate').optional().isISO8601(),
@@ -651,108 +756,5 @@ router.put(
     }
   }
 );
-
-// Get employee statistics
-router.get('/stats/overview', async (req, res) => {
-  try {
-    const companyId = req.companyId;
-    
-    // ✅ Total employees in company
-    const total = await pool.query(
-      'SELECT COUNT(*) as count FROM users WHERE company_id = $1',
-      [companyId]
-    );
-    
-    // ✅ By status (scoped to company)
-    const statusStats = await pool.query(
-      `SELECT 
-        employment_status,
-        COUNT(*) as count
-      FROM users
-      WHERE company_id = $1
-      GROUP BY employment_status`,
-      [companyId]
-    );
-    
-    const byStatus = {};
-    statusStats.rows.forEach(row => {
-      byStatus[row.employment_status] = parseInt(row.count);
-    });
-    
-    // ✅ By department (scoped to company)
-    const deptStats = await pool.query(
-      `SELECT 
-        d.name as department,
-        COUNT(u.id) as count
-      FROM departments d
-      LEFT JOIN users u ON u.department_id = d.id AND u.company_id = $1
-      WHERE d.company_id = $1
-      GROUP BY d.name
-      ORDER BY count DESC`,
-      [companyId]
-    );
-    
-    // ✅ By employment type (scoped to company)
-    const typeStats = await pool.query(
-      `SELECT 
-        employment_type,
-        COUNT(*) as count
-      FROM users
-      WHERE company_id = $1
-      GROUP BY employment_type`,
-      [companyId]
-    );
-    
-    res.json({
-      totalEmployees: parseInt(total.rows[0].count),
-      byStatus,
-      byDepartment: deptStats.rows,
-      byEmploymentType: typeStats.rows
-    });
-  } catch (error) {
-    console.error('❌ Get employee statistics error:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-// Search employees (for quick lookup)
-router.get('/search/quick', async (req, res) => {
-  try {
-    const companyId = req.companyId;
-    const { q } = req.query;
-    
-    if (!q || q.length < 2) {
-      return res.status(400).json({ error: 'Search query too short (minimum 2 characters)' });
-    }
-    
-    const result = await pool.query(
-      `SELECT 
-        u.id as "userId",
-        u.employee_number as "employeeNumber",
-        u.name,
-        u.email,
-        d.name as "departmentName",
-        jp.title as "jobTitle"
-      FROM users u
-      LEFT JOIN departments d ON u.department_id = d.id AND d.company_id = $2
-      LEFT JOIN job_positions jp ON u.job_position_id = jp.id AND jp.company_id = $2
-      WHERE (
-        LOWER(u.name) LIKE LOWER($1)
-        OR LOWER(u.employee_number) LIKE LOWER($1)
-        OR LOWER(u.email) LIKE LOWER($1)
-      )
-      AND u.employment_status = 'active'
-      AND u.company_id = $2
-      ORDER BY u.name ASC
-      LIMIT 10`,
-      [`%${q}%`, companyId]
-    );
-    
-    res.json({ results: result.rows });
-  } catch (error) {
-    console.error('❌ Quick search error:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
 
 export default router;

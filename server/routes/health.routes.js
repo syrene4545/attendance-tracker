@@ -1,20 +1,10 @@
-// import express from 'express';
-
-// const router = express.Router();
-
-// // ==================== HEALTH CHECK ====================
-// router.get('/', (req, res) => {
-//   res.json({ status: 'OK', timestamp: new Date().toISOString() });
-// });
-
-// export default router;
-
 import express from 'express';
 import { pool } from '../index.js';
 
 const router = express.Router();
 
 // ==================== HEALTH CHECK ====================
+// All health check routes are PUBLIC (no authentication required)
 
 // Basic health check (public endpoint - no auth required)
 router.get('/', (req, res) => {
@@ -51,7 +41,7 @@ router.get('/detailed', async (req, res) => {
       healthCheck.status = 'DEGRADED';
     }
 
-    // ✅ Check multi-tenancy tables
+    // Check multi-tenancy tables
     try {
       const tenancyCheck = await pool.query(`
         SELECT 
@@ -86,7 +76,7 @@ router.get('/detailed', async (req, res) => {
   }
 });
 
-// ✅ Database health check (public endpoint)
+// Database health check (public endpoint)
 router.get('/db', async (req, res) => {
   try {
     const start = Date.now();
@@ -114,7 +104,7 @@ router.get('/db', async (req, res) => {
   }
 });
 
-// ✅ Multi-tenancy health check (public endpoint)
+// Multi-tenancy health check (public endpoint)
 router.get('/tenancy', async (req, res) => {
   try {
     // Check if companies table exists and has data
@@ -133,9 +123,10 @@ router.get('/tenancy', async (req, res) => {
       FROM attendance_logs
       GROUP BY company_id
       ORDER BY company_id
+      LIMIT 100
     `);
 
-    // Check if all required tables have company_id column
+    // Check if critical tables have company_id column
     const schemaCheck = await pool.query(`
       SELECT 
         table_name,
@@ -144,17 +135,23 @@ router.get('/tenancy', async (req, res) => {
       WHERE table_schema = 'public' 
         AND column_name = 'company_id'
         AND table_name IN (
-          'users', 'attendance_logs', 'departments', 'employee_profiles',
-          'leave_requests', 'employee_leave_balances', 'assessments',
-          'assessment_attempts', 'employee_compensation'
+          'users', 'attendance_logs', 'departments',
+          'leave_requests', 'assessments',
+          'assessment_attempts', 'employee_compensation',
+          'employee_allowances', 'employee_deductions',
+          'job_positions', 'badges', 'user_badges',
+          'user_certifications', 'company_settings'
         )
       ORDER BY table_name
     `);
 
     const expectedTables = [
-      'users', 'attendance_logs', 'departments', 'employee_profiles',
-      'leave_requests', 'employee_leave_balances', 'assessments',
-      'assessment_attempts', 'employee_compensation'
+      'users', 'attendance_logs', 'departments',
+      'leave_requests', 'assessments',
+      'assessment_attempts', 'employee_compensation',
+      'employee_allowances', 'employee_deductions',
+      'job_positions', 'badges', 'user_badges',
+      'user_certifications', 'company_settings'
     ];
 
     const tablesWithCompanyId = schemaCheck.rows.map(row => row.table_name);
@@ -194,7 +191,7 @@ router.get('/tenancy', async (req, res) => {
   }
 });
 
-// ✅ Ready check (for Kubernetes/Docker health probes)
+// Ready check (for Kubernetes/Docker health probes)
 router.get('/ready', async (req, res) => {
   try {
     // Check database connection
@@ -217,7 +214,7 @@ router.get('/ready', async (req, res) => {
   }
 });
 
-// ✅ Live check (for Kubernetes/Docker liveness probes)
+// Live check (for Kubernetes/Docker liveness probes)
 router.get('/live', (req, res) => {
   res.status(200).json({
     status: 'ALIVE',

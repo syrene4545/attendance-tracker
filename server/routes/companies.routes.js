@@ -2,9 +2,8 @@ import express from 'express';
 import { pool } from '../index.js';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import crypto from 'crypto';
-import { authenticateToken } from '../middleware/permissionMiddleware.js';
-import { verifyTenantAccess } from '../middleware/tenantMiddleware.js';
+import { protect } from '../middleware/authMiddleware.js';
+import { extractTenant, verifyTenantAccess } from '../middleware/tenantMiddleware.js';
 
 const router = express.Router();
 
@@ -25,12 +24,12 @@ router.post('/register', async (req, res) => {
       phone
     } = req.body;
 
-    // ✅ Validate required fields
+    // Validate required fields
     if (!companyName || !subdomain || !email || !password || !firstName || !lastName) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
-    // ✅ Validate subdomain format (alphanumeric and hyphens only)
+    // Validate subdomain format (alphanumeric and hyphens only)
     const subdomainRegex = /^[a-z0-9-]+$/;
     if (!subdomainRegex.test(subdomain)) {
       return res.status(400).json({ 
@@ -38,7 +37,7 @@ router.post('/register', async (req, res) => {
       });
     }
 
-    // ✅ Validate password strength
+    // Validate password strength
     if (password.length < 8) {
       return res.status(400).json({ error: 'Password must be at least 8 characters long' });
     }
@@ -56,7 +55,7 @@ router.post('/register', async (req, res) => {
       return res.status(400).json({ error: 'Subdomain already taken' });
     }
 
-    // ✅ Check if email is already used
+    // 2. Check if email is already used (globally across all companies)
     const existingEmail = await client.query(
       'SELECT id FROM users WHERE email = $1',
       [email]
@@ -67,7 +66,7 @@ router.post('/register', async (req, res) => {
       return res.status(400).json({ error: 'Email already registered' });
     }
 
-    // 2. Create company
+    // 3. Create company
     const companyResult = await client.query(
       `INSERT INTO companies (
         name, subdomain, email, phone, subscription_plan, 
@@ -82,7 +81,7 @@ router.post('/register', async (req, res) => {
 
     console.log('✅ Company created:', company.subdomain);
 
-    // 3. Create admin user
+    // 4. Create admin user
     const hashedPassword = await bcrypt.hash(password, 10);
     const userResult = await client.query(
       `INSERT INTO users (
@@ -96,13 +95,13 @@ router.post('/register', async (req, res) => {
 
     console.log('✅ Admin user created:', user.email);
 
-    // 4. Create default company settings
+    // 5. Create default company settings
     await client.query(
       'INSERT INTO company_settings (company_id) VALUES ($1)',
       [companyId]
     );
 
-    // 5. Create default departments
+    // 6. Create default departments
     await client.query(
       `INSERT INTO departments (company_id, name, description) VALUES 
         ($1, 'Administration', 'Administrative and management staff'),
@@ -111,7 +110,7 @@ router.post('/register', async (req, res) => {
       [companyId]
     );
 
-    // ✅ 6. Create default job positions
+    // 7. Create default job positions
     await client.query(
       `INSERT INTO job_positions (company_id, title, description) VALUES 
         ($1, 'Administrator', 'System administrator'),
@@ -124,7 +123,7 @@ router.post('/register', async (req, res) => {
 
     await client.query('COMMIT');
 
-    // 7. Generate JWT
+    // 8. Generate JWT
     const token = jwt.sign(
       { 
         id: user.id, 
@@ -190,8 +189,13 @@ router.get('/check-subdomain/:subdomain', async (req, res) => {
 
 // ==================== PROTECTED ROUTES ====================
 
+// Apply authentication and tenant extraction to all protected routes
+router.use(protect);           // 1️⃣ Authenticate user
+router.use(extractTenant);     // 2️⃣ Extract tenant context
+router.use(verifyTenantAccess); // 3️⃣ Verify tenant access
+
 // Get current company details
-router.get('/me', authenticateToken, verifyTenantAccess, async (req, res) => {
+router.get('/me', async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT 
@@ -211,8 +215,7 @@ router.get('/me', authenticateToken, verifyTenantAccess, async (req, res) => {
 
     res.json({
       id: company.id,
-    //   name: company.company_name,
-      name: company.name,  // ✅ The column is called 'name', not 'company_name'
+      name: company.name,
       subdomain: company.subdomain,
       domain: company.domain,
       email: company.email,
@@ -250,7 +253,7 @@ router.get('/me', authenticateToken, verifyTenantAccess, async (req, res) => {
 });
 
 // Update company details (Admin only)
-router.put('/me', authenticateToken, verifyTenantAccess, async (req, res) => {
+router.put('/me', async (req, res) => {
   try {
     // Check if user is admin
     if (req.user.role !== 'admin') {
@@ -270,7 +273,7 @@ router.put('/me', authenticateToken, verifyTenantAccess, async (req, res) => {
     let idx = 2;
 
     if (companyName) {
-      updates.push(`company_name = $${idx}`);
+      updates.push(`name = $${idx}`);
       params.push(companyName);
       idx++;
     }
@@ -311,6 +314,11 @@ router.put('/me', authenticateToken, verifyTenantAccess, async (req, res) => {
       if (address.postalCode) {
         updates.push(`postal_code = $${idx}`);
         params.push(address.postalCode);
+        idx++;
+      }
+      if (address.country) {
+        updates.push(`country = $${idx}`);
+        params.push(address.country);
         idx++;
       }
     }
@@ -361,7 +369,7 @@ router.put('/me', authenticateToken, verifyTenantAccess, async (req, res) => {
 });
 
 // Get company settings
-router.get('/settings', authenticateToken, verifyTenantAccess, async (req, res) => {
+router.get('/settings', async (req, res) => {
   try {
     const result = await pool.query(
       'SELECT * FROM company_settings WHERE company_id = $1',
@@ -369,7 +377,12 @@ router.get('/settings', authenticateToken, verifyTenantAccess, async (req, res) 
     );
 
     if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Settings not found' });
+      // Create default settings if they don't exist
+      const createResult = await pool.query(
+        'INSERT INTO company_settings (company_id) VALUES ($1) RETURNING *',
+        [req.companyId]
+      );
+      return res.json(createResult.rows[0]);
     }
 
     res.json(result.rows[0]);
@@ -380,7 +393,7 @@ router.get('/settings', authenticateToken, verifyTenantAccess, async (req, res) 
 });
 
 // Update company settings (Admin only)
-router.put('/settings', authenticateToken, verifyTenantAccess, async (req, res) => {
+router.put('/settings', async (req, res) => {
   try {
     // Check if user is admin
     if (req.user.role !== 'admin') {

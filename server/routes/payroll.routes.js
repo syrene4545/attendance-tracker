@@ -2,12 +2,16 @@
 // import express from 'express';
 // import { pool } from '../index.js';
 // import { authenticateToken, checkPermission } from '../middleware/permissionMiddleware.js';
+// import { verifyTenantAccess } from '../middleware/tenantMiddleware.js';
 // import { body, validationResult } from 'express-validator';
 
 // const router = express.Router();
 
-// // ==================== PAYROLL PROCESSING ROUTES ====================
+// // ✅ Apply authentication and tenant verification to all routes
+// router.use(authenticateToken);
+// router.use(verifyTenantAccess);
 
+// // ==================== PAYROLL PROCESSING ROUTES ====================
 
 // // ==================== TAX CALCULATIONS ====================
 
@@ -58,7 +62,6 @@
 // // Calculate employee payroll for a specific month
 // router.post(
 //   '/calculate/:userId',
-//   authenticateToken,
 //   checkPermission('view_payroll'),
 //   body('month').isInt({ min: 1, max: 12 }),
 //   body('year').isInt({ min: 2020, max: 2100 }),
@@ -70,9 +73,20 @@
 //       }
       
 //       const { userId } = req.params;
+//       const companyId = req.companyId;
 //       const { month, year } = req.body;
       
-//       // Get employee details
+//       // ✅ Verify user belongs to same company
+//       const userCheck = await pool.query(
+//         'SELECT id FROM users WHERE id = $1 AND company_id = $2',
+//         [userId, companyId]
+//       );
+      
+//       if (userCheck.rows.length === 0) {
+//         return res.status(404).json({ error: 'Employee not found' });
+//       }
+      
+//       // ✅ Get employee details (filter by company)
 //       const employee = await pool.query(
 //         `SELECT 
 //           u.id,
@@ -85,10 +99,10 @@
 //           jp.title as "jobTitle"
 //         FROM users u
 //         JOIN employee_profiles ep ON ep.user_id = u.id
-//         LEFT JOIN departments d ON ep.department_id = d.id
-//         LEFT JOIN job_positions jp ON ep.job_position_id = jp.id
-//         WHERE u.id = $1`,
-//         [userId]
+//         LEFT JOIN departments d ON ep.department_id = d.id AND d.company_id = $2
+//         LEFT JOIN job_positions jp ON ep.job_position_id = jp.id AND jp.company_id = $2
+//         WHERE u.id = $1 AND u.company_id = $2 AND ep.company_id = $2`,
+//         [userId, companyId]
 //       );
       
 //       if (employee.rows.length === 0) {
@@ -97,15 +111,15 @@
       
 //       const emp = employee.rows[0];
       
-//       // Get current compensation
+//       // ✅ Get current compensation (filter by company)
 //       const compensation = await pool.query(
 //         `SELECT 
 //           base_salary as "baseSalary",
 //           salary_type as "salaryType",
 //           payment_frequency as "paymentFrequency"
 //         FROM employee_compensation
-//         WHERE user_id = $1 AND is_current = true`,
-//         [userId]
+//         WHERE user_id = $1 AND is_current = true AND company_id = $2`,
+//         [userId, companyId]
 //       );
       
 //       if (compensation.rows.length === 0) {
@@ -114,15 +128,15 @@
       
 //       const baseSalary = parseFloat(compensation.rows[0].baseSalary);
       
-//       // Get active allowances
+//       // ✅ Get active allowances (filter by company)
 //       const allowances = await pool.query(
 //         `SELECT 
 //           allowance_type as "allowanceType",
 //           amount,
 //           is_taxable as "isTaxable"
 //         FROM employee_allowances
-//         WHERE user_id = $1 AND is_active = true`,
-//         [userId]
+//         WHERE user_id = $1 AND is_active = true AND company_id = $2`,
+//         [userId, companyId]
 //       );
       
 //       // Calculate total allowances
@@ -138,7 +152,7 @@
 //         }
 //       });
       
-//       // Get active deductions
+//       // ✅ Get active deductions (filter by company)
 //       const deductions = await pool.query(
 //         `SELECT 
 //           deduction_type as "deductionType",
@@ -147,8 +161,8 @@
 //           is_percentage as "isPercentage",
 //           is_mandatory as "isMandatory"
 //         FROM employee_deductions
-//         WHERE user_id = $1 AND is_active = true`,
-//         [userId]
+//         WHERE user_id = $1 AND is_active = true AND company_id = $2`,
+//         [userId, companyId]
 //       );
       
 //       // Calculate gross pay (before tax)
@@ -239,7 +253,7 @@
       
 //       res.json({ payroll: payrollCalculation });
 //     } catch (error) {
-//       console.error('Calculate payroll error:', error);
+//       console.error('❌ Calculate payroll error:', error);
 //       res.status(500).json({ error: 'Internal server error' });
 //     }
 //   }
@@ -262,9 +276,10 @@
 //       processed_by INTEGER REFERENCES users(id),
 //       processed_at TIMESTAMP,
 //       notes TEXT,
+//       company_id INTEGER REFERENCES companies(id),
 //       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 //       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-//       UNIQUE(month, year)
+//       UNIQUE(month, year, company_id)
 //     );
     
 //     CREATE TABLE IF NOT EXISTS payroll_items (
@@ -286,12 +301,15 @@
 //       payment_date DATE,
 //       payment_reference VARCHAR(255),
 //       notes TEXT,
+//       company_id INTEGER REFERENCES companies(id),
 //       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 //     );
     
 //     CREATE INDEX IF NOT EXISTS idx_payroll_runs_period ON payroll_runs(year, month);
+//     CREATE INDEX IF NOT EXISTS idx_payroll_runs_company ON payroll_runs(company_id);
 //     CREATE INDEX IF NOT EXISTS idx_payroll_items_run ON payroll_items(payroll_run_id);
 //     CREATE INDEX IF NOT EXISTS idx_payroll_items_user ON payroll_items(user_id);
+//     CREATE INDEX IF NOT EXISTS idx_payroll_items_company ON payroll_items(company_id);
 //   `);
 // };
 
@@ -299,8 +317,9 @@
 // ensurePayrollTables().catch(console.error);
 
 // // Get all payroll runs
-// router.get('/runs', authenticateToken, checkPermission('view_payroll'), async (req, res) => {
+// router.get('/runs', checkPermission('view_payroll'), async (req, res) => {
 //   try {
+//     const companyId = req.companyId;
 //     const { year, status } = req.query;
     
 //     let query = `
@@ -318,12 +337,12 @@
 //         pr.processed_at as "processedAt",
 //         pr.created_at as "createdAt"
 //       FROM payroll_runs pr
-//       LEFT JOIN users u ON pr.processed_by = u.id
-//       WHERE 1=1
+//       LEFT JOIN users u ON pr.processed_by = u.id AND u.company_id = $1
+//       WHERE pr.company_id = $1
 //     `;
     
-//     const params = [];
-//     let paramIndex = 1;
+//     const params = [companyId];
+//     let paramIndex = 2;
     
 //     if (year) {
 //       query += ` AND pr.year = $${paramIndex}`;
@@ -343,32 +362,33 @@
     
 //     res.json({ runs: result.rows });
 //   } catch (error) {
-//     console.error('Get payroll runs error:', error);
+//     console.error('❌ Get payroll runs error:', error);
 //     res.status(500).json({ error: 'Internal server error' });
 //   }
 // });
 
 // // Get single payroll run with details
-// router.get('/runs/:id', authenticateToken, checkPermission('view_payroll'), async (req, res) => {
+// router.get('/runs/:id', checkPermission('view_payroll'), async (req, res) => {
 //   try {
 //     const { id } = req.params;
+//     const companyId = req.companyId;
     
-//     // Get run details
+//     // ✅ Get run details (filter by company)
 //     const run = await pool.query(
 //       `SELECT 
 //         pr.*,
 //         u.name as "processedByName"
 //       FROM payroll_runs pr
-//       LEFT JOIN users u ON pr.processed_by = u.id
-//       WHERE pr.id = $1`,
-//       [id]
+//       LEFT JOIN users u ON pr.processed_by = u.id AND u.company_id = $2
+//       WHERE pr.id = $1 AND pr.company_id = $2`,
+//       [id, companyId]
 //     );
     
 //     if (run.rows.length === 0) {
 //       return res.status(404).json({ error: 'Payroll run not found' });
 //     }
     
-//     // Get payroll items
+//     // ✅ Get payroll items (filter by company)
 //     const items = await pool.query(
 //       `SELECT 
 //         pi.*,
@@ -384,9 +404,9 @@
 //         pi.payment_date as "paymentDate",
 //         pi.payment_reference as "paymentReference"
 //       FROM payroll_items pi
-//       WHERE pi.payroll_run_id = $1
+//       WHERE pi.payroll_run_id = $1 AND pi.company_id = $2
 //       ORDER BY pi.employee_name ASC`,
-//       [id]
+//       [id, companyId]
 //     );
     
 //     res.json({
@@ -394,7 +414,7 @@
 //       items: items.rows
 //     });
 //   } catch (error) {
-//     console.error('Get payroll run error:', error);
+//     console.error('❌ Get payroll run error:', error);
 //     res.status(500).json({ error: 'Internal server error' });
 //   }
 // });
@@ -402,7 +422,6 @@
 // // Process payroll for a month (create payroll run)
 // router.post(
 //   '/runs/process',
-//   authenticateToken,
 //   checkPermission('process_payroll'),
 //   body('month').isInt({ min: 1, max: 12 }),
 //   body('year').isInt({ min: 2020, max: 2100 }),
@@ -415,11 +434,12 @@
 //       }
       
 //       const { month, year, departmentId, notes } = req.body;
+//       const companyId = req.companyId;
       
-//       // Check if payroll already processed for this period
+//       // ✅ Check if payroll already processed for this period (in this company)
 //       const existing = await pool.query(
-//         'SELECT id FROM payroll_runs WHERE month = $1 AND year = $2',
-//         [month, year]
+//         'SELECT id FROM payroll_runs WHERE month = $1 AND year = $2 AND company_id = $3',
+//         [month, year, companyId]
 //       );
       
 //       if (existing.rows.length > 0) {
@@ -429,7 +449,7 @@
 //         });
 //       }
       
-//       // Get active employees
+//       // ✅ Get active employees (filter by company)
 //       let employeeQuery = `
 //         SELECT 
 //           u.id,
@@ -439,14 +459,16 @@
 //           ec.base_salary
 //         FROM users u
 //         JOIN employee_profiles ep ON ep.user_id = u.id
-//         JOIN employee_compensation ec ON ec.user_id = u.id AND ec.is_current = true
-//         LEFT JOIN departments d ON ep.department_id = d.id
-//         WHERE ep.employment_status = 'active'
+//         JOIN employee_compensation ec ON ec.user_id = u.id AND ec.is_current = true AND ec.company_id = $1
+//         LEFT JOIN departments d ON ep.department_id = d.id AND d.company_id = $1
+//         WHERE ep.employment_status = 'active' 
+//           AND u.company_id = $1 
+//           AND ep.company_id = $1
 //       `;
       
-//       const params = [];
+//       const params = [companyId];
 //       if (departmentId) {
-//         employeeQuery += ' AND ep.department_id = $1';
+//         employeeQuery += ' AND ep.department_id = $2';
 //         params.push(departmentId);
 //       }
       
@@ -462,12 +484,12 @@
 //       await pool.query('BEGIN');
       
 //       try {
-//         // Create payroll run
+//         // ✅ Create payroll run with company_id
 //         const runResult = await pool.query(
-//           `INSERT INTO payroll_runs (month, year, status, processed_by, notes)
-//            VALUES ($1, $2, 'draft', $3, $4)
+//           `INSERT INTO payroll_runs (month, year, status, processed_by, notes, company_id)
+//            VALUES ($1, $2, 'draft', $3, $4, $5)
 //            RETURNING id`,
-//           [month, year, req.user.id, notes || null]
+//           [month, year, req.user.id, notes || null, companyId]
 //         );
         
 //         const payrollRunId = runResult.rows[0].id;
@@ -478,12 +500,12 @@
         
 //         // Process each employee
 //         for (const emp of employees.rows) {
-//           // Get allowances
+//           // ✅ Get allowances (filter by company)
 //           const allowances = await pool.query(
 //             `SELECT SUM(amount) as total
 //              FROM employee_allowances
-//              WHERE user_id = $1 AND is_active = true`,
-//             [emp.id]
+//              WHERE user_id = $1 AND is_active = true AND company_id = $2`,
+//             [emp.id, companyId]
 //           );
           
 //           const totalAllowances = parseFloat(allowances.rows[0].total || 0);
@@ -498,7 +520,7 @@
 //           // Calculate UIF
 //           const uif = calculateUIF(grossPay);
           
-//           // Get other deductions
+//           // ✅ Get other deductions (filter by company)
 //           const deductions = await pool.query(
 //             `SELECT 
 //               SUM(CASE 
@@ -507,22 +529,22 @@
 //                 ELSE amount
 //               END) as total
 //              FROM employee_deductions
-//              WHERE user_id = $2 AND is_active = true`,
-//             [grossPay, emp.id]
+//              WHERE user_id = $2 AND is_active = true AND company_id = $3`,
+//             [grossPay, emp.id, companyId]
 //           );
           
 //           const otherDeductions = parseFloat(deductions.rows[0].total || 0);
 //           const totalEmpDeductions = monthlyPAYE + uif + otherDeductions;
 //           const netPay = grossPay - totalEmpDeductions;
           
-//           // Insert payroll item
+//           // ✅ Insert payroll item with company_id
 //           await pool.query(
 //             `INSERT INTO payroll_items (
 //               payroll_run_id, user_id, employee_number, employee_name, department,
 //               base_salary, allowances, gross_pay, paye, uif, other_deductions,
-//               total_deductions, net_pay, payment_status
+//               total_deductions, net_pay, payment_status, company_id
 //             )
-//             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'pending')`,
+//             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'pending', $14)`,
 //             [
 //               payrollRunId,
 //               emp.id,
@@ -536,7 +558,8 @@
 //               uif,
 //               otherDeductions,
 //               totalEmpDeductions,
-//               netPay
+//               netPay,
+//               companyId
 //             ]
 //           );
           
@@ -564,6 +587,7 @@
 //           runId: payrollRunId,
 //           month,
 //           year,
+//           companyId,
 //           employees: employees.rows.length
 //         });
         
@@ -584,7 +608,7 @@
 //         throw error;
 //       }
 //     } catch (error) {
-//       console.error('Process payroll error:', error);
+//       console.error('❌ Process payroll error:', error);
 //       res.status(500).json({ error: 'Internal server error' });
 //     }
 //   }
@@ -593,7 +617,6 @@
 // // Update payment status for payroll item
 // router.put(
 //   '/items/:id/payment',
-//   authenticateToken,
 //   checkPermission('process_payroll'),
 //   body('paymentStatus').isIn(['pending', 'paid', 'failed']),
 //   body('paymentDate').optional().isISO8601(),
@@ -601,16 +624,18 @@
 //   async (req, res) => {
 //     try {
 //       const { id } = req.params;
+//       const companyId = req.companyId;
 //       const { paymentStatus, paymentDate, paymentReference } = req.body;
       
+//       // ✅ Filter by company
 //       const result = await pool.query(
 //         `UPDATE payroll_items
 //          SET payment_status = $1,
 //              payment_date = $2,
 //              payment_reference = $3
-//          WHERE id = $4
+//          WHERE id = $4 AND company_id = $5
 //          RETURNING id, employee_name, payment_status`,
-//         [paymentStatus, paymentDate || null, paymentReference || null, id]
+//         [paymentStatus, paymentDate || null, paymentReference || null, id, companyId]
 //       );
       
 //       if (result.rows.length === 0) {
@@ -622,7 +647,7 @@
 //         item: result.rows[0]
 //       });
 //     } catch (error) {
-//       console.error('Update payment status error:', error);
+//       console.error('❌ Update payment status error:', error);
 //       res.status(500).json({ error: 'Internal server error' });
 //     }
 //   }
@@ -631,12 +656,23 @@
 // // ==================== PAYSLIPS ====================
 
 // // Get employee's payslips
-// router.get('/payslips/:userId', authenticateToken, async (req, res) => {
+// router.get('/payslips/:userId', async (req, res) => {
 //   try {
 //     const { userId } = req.params;
+//     const companyId = req.companyId;
 //     const { year } = req.query;
     
-//     console.log('📊 Fetching payslips for user:', userId, 'by:', req.user.id);
+//     console.log('📊 Fetching payslips for user:', userId, 'by:', req.user.id, 'company:', companyId);
+    
+//     // ✅ Verify user belongs to same company
+//     const userCheck = await pool.query(
+//       'SELECT id FROM users WHERE id = $1 AND company_id = $2',
+//       [userId, companyId]
+//     );
+    
+//     if (userCheck.rows.length === 0) {
+//       return res.status(404).json({ error: 'Employee not found' });
+//     }
     
 //     // Check permissions - users can ONLY view their own payslips
 //     const canViewAll = ['admin', 'hr'].includes(req.user.role);
@@ -672,10 +708,12 @@
 //       JOIN payroll_runs pr ON pi.payroll_run_id = pr.id
 //       WHERE pi.user_id = $1
 //         AND pr.status = 'processed'
+//         AND pi.company_id = $2
+//         AND pr.company_id = $2
 //     `;
     
-//     const params = [userId];
-//     let paramIndex = 2;
+//     const params = [userId, companyId];
+//     let paramIndex = 3;
     
 //     if (year) {
 //       query += ` AND pr.year = $${paramIndex}`;
@@ -701,11 +739,22 @@
 // });
 
 // // Get detailed payslip
-// router.get('/payslips/:userId/:runId', authenticateToken, async (req, res) => {
+// router.get('/payslips/:userId/:runId', async (req, res) => {
 //   try {
 //     const { userId, runId } = req.params;
+//     const companyId = req.companyId;
     
-//     console.log('📄 Fetching payslip for user:', userId, 'run:', runId, 'by:', req.user.id);
+//     console.log('📄 Fetching payslip for user:', userId, 'run:', runId, 'by:', req.user.id, 'company:', companyId);
+    
+//     // ✅ Verify user belongs to same company
+//     const userCheck = await pool.query(
+//       'SELECT id FROM users WHERE id = $1 AND company_id = $2',
+//       [userId, companyId]
+//     );
+    
+//     if (userCheck.rows.length === 0) {
+//       return res.status(404).json({ error: 'Employee not found' });
+//     }
     
 //     // Check permissions
 //     const canViewAll = ['admin', 'hr'].includes(req.user.role);
@@ -716,6 +765,7 @@
 //       return res.status(403).json({ error: 'You can only view your own payslips' });
 //     }
     
+//     // ✅ Filter by company
 //     const result = await pool.query(
 //       `SELECT 
 //         pr.id as "payrollRunId",
@@ -741,8 +791,12 @@
 //       FROM payroll_items pi
 //       JOIN payroll_runs pr ON pi.payroll_run_id = pr.id
 //       JOIN users u ON u.id = pi.user_id
-//       WHERE pi.user_id = $1 AND pr.id = $2`,
-//       [userId, runId]
+//       WHERE pi.user_id = $1 
+//         AND pr.id = $2 
+//         AND pi.company_id = $3 
+//         AND pr.company_id = $3 
+//         AND u.company_id = $3`,
+//       [userId, runId, companyId]
 //     );
     
 //     if (result.rows.length === 0) {
@@ -798,15 +852,16 @@
 //   }
 // });
 
-
 // // ==================== PAYROLL REPORTS ====================
 
 // // Get payroll summary report
-// router.get('/reports/summary', authenticateToken, checkPermission('view_payroll'), async (req, res) => {
+// router.get('/reports/summary', checkPermission('view_payroll'), async (req, res) => {
 //   try {
+//     const companyId = req.companyId;
 //     const { year } = req.query;
 //     const currentYear = year || new Date().getFullYear();
     
+//     // ✅ Filter by company
 //     const result = await pool.query(
 //       `SELECT 
 //         pr.month,
@@ -818,9 +873,9 @@
 //         pr.status,
 //         pr.processed_at as "processedAt"
 //       FROM payroll_runs pr
-//       WHERE pr.year = $1
+//       WHERE pr.year = $1 AND pr.company_id = $2
 //       ORDER BY pr.month ASC`,
-//       [currentYear]
+//       [currentYear, companyId]
 //     );
     
 //     // Calculate year totals
@@ -841,21 +896,23 @@
 //       }
 //     });
 //   } catch (error) {
-//     console.error('Get payroll summary error:', error);
+//     console.error('❌ Get payroll summary error:', error);
 //     res.status(500).json({ error: 'Internal server error' });
 //   }
 // });
 
 // // Get department payroll breakdown
-// router.get('/reports/department/:departmentId', authenticateToken, checkPermission('view_payroll'), async (req, res) => {
+// router.get('/reports/department/:departmentId', checkPermission('view_payroll'), async (req, res) => {
 //   try {
 //     const { departmentId } = req.params;
+//     const companyId = req.companyId;
 //     const { month, year } = req.query;
     
 //     if (!month || !year) {
 //       return res.status(400).json({ error: 'Month and year are required' });
 //     }
     
+//     // ✅ Filter by company
 //     const result = await pool.query(
 //       `SELECT 
 //         pi.employee_name as "employeeName",
@@ -871,8 +928,11 @@
 //       WHERE ep.department_id = $1
 //         AND pr.month = $2
 //         AND pr.year = $3
+//         AND pi.company_id = $4
+//         AND pr.company_id = $4
+//         AND ep.company_id = $4
 //       ORDER BY pi.employee_name ASC`,
-//       [departmentId, month, year]
+//       [departmentId, month, year, companyId]
 //     );
     
 //     // Calculate totals
@@ -904,20 +964,22 @@
 //       }
 //     });
 //   } catch (error) {
-//     console.error('Get department payroll report error:', error);
+//     console.error('❌ Get department payroll report error:', error);
 //     res.status(500).json({ error: 'Internal server error' });
 //   }
 // });
 
 // // Get tax report (PAYE summary)
-// router.get('/reports/tax', authenticateToken, checkPermission('view_payroll'), async (req, res) => {
+// router.get('/reports/tax', checkPermission('view_payroll'), async (req, res) => {
 //   try {
+//     const companyId = req.companyId;
 //     const { month, year } = req.query;
     
 //     if (!month || !year) {
 //       return res.status(400).json({ error: 'Month and year are required' });
 //     }
     
+//     // ✅ Filter by company
 //     const result = await pool.query(
 //       `SELECT 
 //         pi.employee_name as "employeeName",
@@ -927,9 +989,12 @@
 //         pi.uif
 //       FROM payroll_items pi
 //       JOIN payroll_runs pr ON pi.payroll_run_id = pr.id
-//       WHERE pr.month = $1 AND pr.year = $2
+//       WHERE pr.month = $1 
+//         AND pr.year = $2 
+//         AND pi.company_id = $3 
+//         AND pr.company_id = $3
 //       ORDER BY pi.paye DESC`,
-//       [month, year]
+//       [month, year, companyId]
 //     );
     
 //     const totals = result.rows.reduce((acc, row) => {
@@ -948,7 +1013,7 @@
 //       }
 //     });
 //   } catch (error) {
-//     console.error('Get tax report error:', error);
+//     console.error('❌ Get tax report error:', error);
 //     res.status(500).json({ error: 'Internal server error' });
 //   }
 // });
@@ -958,15 +1023,17 @@
 // server/routes/payroll.routes.js
 import express from 'express';
 import { pool } from '../index.js';
-import { authenticateToken, checkPermission } from '../middleware/permissionMiddleware.js';
-import { verifyTenantAccess } from '../middleware/tenantMiddleware.js';
+import { protect } from '../middleware/authMiddleware.js';
+import { checkPermission } from '../middleware/permissionMiddleware.js';
+import { extractTenant, verifyTenantAccess } from '../middleware/tenantMiddleware.js';
 import { body, validationResult } from 'express-validator';
 
 const router = express.Router();
 
-// ✅ Apply authentication and tenant verification to all routes
-router.use(authenticateToken);
-router.use(verifyTenantAccess);
+// ✅ Apply authentication and tenant extraction to ALL routes
+router.use(protect);           // 1️⃣ Authenticate user
+router.use(extractTenant);     // 2️⃣ Extract tenant context
+router.use(verifyTenantAccess); // 3️⃣ Verify tenant access
 
 // ==================== PAYROLL PROCESSING ROUTES ====================
 
@@ -1019,7 +1086,7 @@ const calculateUIF = (monthlyIncome) => {
 // Calculate employee payroll for a specific month
 router.post(
   '/calculate/:userId',
-  checkPermission('view_payroll'),
+  checkPermission('manage_payroll'),
   body('month').isInt({ min: 1, max: 12 }),
   body('year').isInt({ min: 2020, max: 2100 }),
   async (req, res) => {
@@ -1033,7 +1100,7 @@ router.post(
       const companyId = req.companyId;
       const { month, year } = req.body;
       
-      // ✅ Verify user belongs to same company
+      // Verify user belongs to same company
       const userCheck = await pool.query(
         'SELECT id FROM users WHERE id = $1 AND company_id = $2',
         [userId, companyId]
@@ -1043,22 +1110,21 @@ router.post(
         return res.status(404).json({ error: 'Employee not found' });
       }
       
-      // ✅ Get employee details (filter by company)
+      // Get employee details (filter by company)
       const employee = await pool.query(
         `SELECT 
           u.id,
           u.name,
           u.email,
-          ep.employee_number as "employeeNumber",
-          ep.first_name as "firstName",
-          ep.last_name as "lastName",
+          u.employee_number as "employeeNumber",
+          u.first_name as "firstName",
+          u.last_name as "lastName",
           d.name as "departmentName",
           jp.title as "jobTitle"
         FROM users u
-        JOIN employee_profiles ep ON ep.user_id = u.id
-        LEFT JOIN departments d ON ep.department_id = d.id AND d.company_id = $2
-        LEFT JOIN job_positions jp ON ep.job_position_id = jp.id AND jp.company_id = $2
-        WHERE u.id = $1 AND u.company_id = $2 AND ep.company_id = $2`,
+        LEFT JOIN departments d ON u.department_id = d.id AND d.company_id = $2
+        LEFT JOIN job_positions jp ON u.job_position_id = jp.id AND jp.company_id = $2
+        WHERE u.id = $1 AND u.company_id = $2`,
         [userId, companyId]
       );
       
@@ -1068,7 +1134,7 @@ router.post(
       
       const emp = employee.rows[0];
       
-      // ✅ Get current compensation (filter by company)
+      // Get current compensation (filter by company)
       const compensation = await pool.query(
         `SELECT 
           base_salary as "baseSalary",
@@ -1085,7 +1151,7 @@ router.post(
       
       const baseSalary = parseFloat(compensation.rows[0].baseSalary);
       
-      // ✅ Get active allowances (filter by company)
+      // Get active allowances (filter by company)
       const allowances = await pool.query(
         `SELECT 
           allowance_type as "allowanceType",
@@ -1109,7 +1175,7 @@ router.post(
         }
       });
       
-      // ✅ Get active deductions (filter by company)
+      // Get active deductions (filter by company)
       const deductions = await pool.query(
         `SELECT 
           deduction_type as "deductionType",
@@ -1274,7 +1340,7 @@ const ensurePayrollTables = async () => {
 ensurePayrollTables().catch(console.error);
 
 // Get all payroll runs
-router.get('/runs', checkPermission('view_payroll'), async (req, res) => {
+router.get('/runs', checkPermission('manage_payroll'), async (req, res) => {
   try {
     const companyId = req.companyId;
     const { year, status } = req.query;
@@ -1325,12 +1391,12 @@ router.get('/runs', checkPermission('view_payroll'), async (req, res) => {
 });
 
 // Get single payroll run with details
-router.get('/runs/:id', checkPermission('view_payroll'), async (req, res) => {
+router.get('/runs/:id', checkPermission('manage_payroll'), async (req, res) => {
   try {
     const { id } = req.params;
     const companyId = req.companyId;
     
-    // ✅ Get run details (filter by company)
+    // Get run details (filter by company)
     const run = await pool.query(
       `SELECT 
         pr.*,
@@ -1345,7 +1411,7 @@ router.get('/runs/:id', checkPermission('view_payroll'), async (req, res) => {
       return res.status(404).json({ error: 'Payroll run not found' });
     }
     
-    // ✅ Get payroll items (filter by company)
+    // Get payroll items (filter by company)
     const items = await pool.query(
       `SELECT 
         pi.*,
@@ -1379,7 +1445,7 @@ router.get('/runs/:id', checkPermission('view_payroll'), async (req, res) => {
 // Process payroll for a month (create payroll run)
 router.post(
   '/runs/process',
-  checkPermission('process_payroll'),
+  checkPermission('manage_payroll'),
   body('month').isInt({ min: 1, max: 12 }),
   body('year').isInt({ min: 2020, max: 2100 }),
   body('departmentId').optional().isInt(),
@@ -1393,7 +1459,7 @@ router.post(
       const { month, year, departmentId, notes } = req.body;
       const companyId = req.companyId;
       
-      // ✅ Check if payroll already processed for this period (in this company)
+      // Check if payroll already processed for this period (in this company)
       const existing = await pool.query(
         'SELECT id FROM payroll_runs WHERE month = $1 AND year = $2 AND company_id = $3',
         [month, year, companyId]
@@ -1406,26 +1472,24 @@ router.post(
         });
       }
       
-      // ✅ Get active employees (filter by company)
+      // Get active employees (filter by company)
       let employeeQuery = `
         SELECT 
           u.id,
           u.name,
-          ep.employee_number,
+          u.employee_number,
           d.name as department,
           ec.base_salary
         FROM users u
-        JOIN employee_profiles ep ON ep.user_id = u.id
         JOIN employee_compensation ec ON ec.user_id = u.id AND ec.is_current = true AND ec.company_id = $1
-        LEFT JOIN departments d ON ep.department_id = d.id AND d.company_id = $1
-        WHERE ep.employment_status = 'active' 
-          AND u.company_id = $1 
-          AND ep.company_id = $1
+        LEFT JOIN departments d ON u.department_id = d.id AND d.company_id = $1
+        WHERE u.employment_status = 'active' 
+          AND u.company_id = $1
       `;
       
       const params = [companyId];
       if (departmentId) {
-        employeeQuery += ' AND ep.department_id = $2';
+        employeeQuery += ' AND u.department_id = $2';
         params.push(departmentId);
       }
       
@@ -1441,7 +1505,7 @@ router.post(
       await pool.query('BEGIN');
       
       try {
-        // ✅ Create payroll run with company_id
+        // Create payroll run with company_id
         const runResult = await pool.query(
           `INSERT INTO payroll_runs (month, year, status, processed_by, notes, company_id)
            VALUES ($1, $2, 'draft', $3, $4, $5)
@@ -1457,7 +1521,7 @@ router.post(
         
         // Process each employee
         for (const emp of employees.rows) {
-          // ✅ Get allowances (filter by company)
+          // Get allowances (filter by company)
           const allowances = await pool.query(
             `SELECT SUM(amount) as total
              FROM employee_allowances
@@ -1477,7 +1541,7 @@ router.post(
           // Calculate UIF
           const uif = calculateUIF(grossPay);
           
-          // ✅ Get other deductions (filter by company)
+          // Get other deductions (filter by company)
           const deductions = await pool.query(
             `SELECT 
               SUM(CASE 
@@ -1494,7 +1558,7 @@ router.post(
           const totalEmpDeductions = monthlyPAYE + uif + otherDeductions;
           const netPay = grossPay - totalEmpDeductions;
           
-          // ✅ Insert payroll item with company_id
+          // Insert payroll item with company_id
           await pool.query(
             `INSERT INTO payroll_items (
               payroll_run_id, user_id, employee_number, employee_name, department,
@@ -1574,7 +1638,7 @@ router.post(
 // Update payment status for payroll item
 router.put(
   '/items/:id/payment',
-  checkPermission('process_payroll'),
+  checkPermission('manage_payroll'),
   body('paymentStatus').isIn(['pending', 'paid', 'failed']),
   body('paymentDate').optional().isISO8601(),
   body('paymentReference').optional().trim(),
@@ -1584,7 +1648,6 @@ router.put(
       const companyId = req.companyId;
       const { paymentStatus, paymentDate, paymentReference } = req.body;
       
-      // ✅ Filter by company
       const result = await pool.query(
         `UPDATE payroll_items
          SET payment_status = $1,
@@ -1621,7 +1684,7 @@ router.get('/payslips/:userId', async (req, res) => {
     
     console.log('📊 Fetching payslips for user:', userId, 'by:', req.user.id, 'company:', companyId);
     
-    // ✅ Verify user belongs to same company
+    // Verify user belongs to same company
     const userCheck = await pool.query(
       'SELECT id FROM users WHERE id = $1 AND company_id = $2',
       [userId, companyId]
@@ -1703,7 +1766,7 @@ router.get('/payslips/:userId/:runId', async (req, res) => {
     
     console.log('📄 Fetching payslip for user:', userId, 'run:', runId, 'by:', req.user.id, 'company:', companyId);
     
-    // ✅ Verify user belongs to same company
+    // Verify user belongs to same company
     const userCheck = await pool.query(
       'SELECT id FROM users WHERE id = $1 AND company_id = $2',
       [userId, companyId]
@@ -1722,7 +1785,6 @@ router.get('/payslips/:userId/:runId', async (req, res) => {
       return res.status(403).json({ error: 'You can only view your own payslips' });
     }
     
-    // ✅ Filter by company
     const result = await pool.query(
       `SELECT 
         pr.id as "payrollRunId",
@@ -1812,13 +1874,12 @@ router.get('/payslips/:userId/:runId', async (req, res) => {
 // ==================== PAYROLL REPORTS ====================
 
 // Get payroll summary report
-router.get('/reports/summary', checkPermission('view_payroll'), async (req, res) => {
+router.get('/reports/summary', checkPermission('manage_payroll'), async (req, res) => {
   try {
     const companyId = req.companyId;
     const { year } = req.query;
     const currentYear = year || new Date().getFullYear();
     
-    // ✅ Filter by company
     const result = await pool.query(
       `SELECT 
         pr.month,
@@ -1859,7 +1920,7 @@ router.get('/reports/summary', checkPermission('view_payroll'), async (req, res)
 });
 
 // Get department payroll breakdown
-router.get('/reports/department/:departmentId', checkPermission('view_payroll'), async (req, res) => {
+router.get('/reports/department/:departmentId', checkPermission('manage_payroll'), async (req, res) => {
   try {
     const { departmentId } = req.params;
     const companyId = req.companyId;
@@ -1869,7 +1930,6 @@ router.get('/reports/department/:departmentId', checkPermission('view_payroll'),
       return res.status(400).json({ error: 'Month and year are required' });
     }
     
-    // ✅ Filter by company
     const result = await pool.query(
       `SELECT 
         pi.employee_name as "employeeName",
@@ -1881,13 +1941,13 @@ router.get('/reports/department/:departmentId', checkPermission('view_payroll'),
         pi.net_pay as "netPay"
       FROM payroll_items pi
       JOIN payroll_runs pr ON pi.payroll_run_id = pr.id
-      JOIN employee_profiles ep ON pi.user_id = ep.user_id
-      WHERE ep.department_id = $1
+      JOIN users u ON pi.user_id = u.id
+      WHERE u.department_id = $1
         AND pr.month = $2
         AND pr.year = $3
         AND pi.company_id = $4
         AND pr.company_id = $4
-        AND ep.company_id = $4
+        AND u.company_id = $4
       ORDER BY pi.employee_name ASC`,
       [departmentId, month, year, companyId]
     );
@@ -1927,7 +1987,7 @@ router.get('/reports/department/:departmentId', checkPermission('view_payroll'),
 });
 
 // Get tax report (PAYE summary)
-router.get('/reports/tax', checkPermission('view_payroll'), async (req, res) => {
+router.get('/reports/tax', checkPermission('manage_payroll'), async (req, res) => {
   try {
     const companyId = req.companyId;
     const { month, year } = req.query;
@@ -1936,7 +1996,6 @@ router.get('/reports/tax', checkPermission('view_payroll'), async (req, res) => 
       return res.status(400).json({ error: 'Month and year are required' });
     }
     
-    // ✅ Filter by company
     const result = await pool.query(
       `SELECT 
         pi.employee_name as "employeeName",
