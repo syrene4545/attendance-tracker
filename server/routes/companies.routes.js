@@ -66,16 +66,35 @@ router.post('/register', async (req, res) => {
       return res.status(400).json({ error: 'Email already registered' });
     }
 
-    // 3. Create company with JSON columns
+    // ✅ 3. Create company with CORRECT column names
     const companyResult = await client.query(
       `INSERT INTO companies (
-        name, subdomain, email, phone, subscription_plan, 
-        subscription_start_date, subscription_end_date, is_active,
-        address, branding, settings, features
+        name,
+        subdomain,
+        email,
+        phone,
+        subscription_plan,
+        subscription_status,
+        subscription_starts_at,
+        subscription_ends_at,
+        trial_ends_at,
+        is_active,
+        address,
+        branding,
+        settings,
+        features
       ) VALUES (
-        $1, $2, $3, $4, 'trial', 
-        CURRENT_DATE, CURRENT_DATE + INTERVAL '14 days', true,
-        $5::jsonb, $6::jsonb, $7::jsonb, $8::jsonb
+        $1, $2, $3, $4,
+        'trial',
+        'active',
+        CURRENT_DATE,
+        CURRENT_DATE + INTERVAL '14 days',
+        CURRENT_DATE + INTERVAL '14 days',
+        true,
+        $5::jsonb,
+        $6::jsonb,
+        $7::jsonb,
+        $8::jsonb
       )
       RETURNING id, name, subdomain`,
       [
@@ -171,7 +190,9 @@ router.post('/register', async (req, res) => {
 
   } catch (error) {
     await client.query('ROLLBACK');
-    console.error('Company registration error:', error);
+    console.error('❌ Company registration error:', error);
+    console.error('❌ Error details:', error.message);
+    console.error('❌ Error stack:', error.stack);
     res.status(500).json({ 
       error: 'Registration failed',
       details: process.env.NODE_ENV === 'development' ? error.message : undefined
@@ -208,7 +229,7 @@ router.use(protect);           // 1️⃣ Authenticate user
 router.use(extractTenant);     // 2️⃣ Extract tenant context
 router.use(verifyTenantAccess); // 3️⃣ Verify tenant access
 
-// ✅ FIXED: Get current company details (reads JSON columns properly)
+// ✅ FIXED: Get current company details (reads JSON columns properly + correct column names)
 router.get('/me', async (req, res) => {
   try {
     const result = await pool.query(
@@ -227,7 +248,7 @@ router.get('/me', async (req, res) => {
 
     const company = result.rows[0];
 
-    // ✅ FIX: Parse JSON columns properly
+    // ✅ Parse JSON columns properly
     const address = typeof company.address === 'string' 
       ? JSON.parse(company.address) 
       : company.address || {};
@@ -251,15 +272,17 @@ router.get('/me', async (req, res) => {
       domain: company.domain,
       email: company.email,
       phone: company.phone,
-      address: address, // ✅ Already parsed JSON
-      branding: branding, // ✅ Already parsed JSON
-      settings: settings, // ✅ Already parsed JSON
-      features: features, // ✅ Already parsed JSON
+      address: address,
+      branding: branding,
+      settings: settings,
+      features: features,
       subscription: {
         plan: company.subscription_plan,
+        status: company.subscription_status, // ✅ Use correct column
         maxEmployees: company.max_employees,
-        startDate: company.subscription_start_date,
-        endDate: company.subscription_end_date,
+        startDate: company.subscription_starts_at, // ✅ Use correct column
+        endDate: company.subscription_ends_at,     // ✅ Use correct column
+        trialEndsAt: company.trial_ends_at,        // ✅ Use correct column
         isActive: company.is_active
       },
       stats: {
@@ -269,7 +292,8 @@ router.get('/me', async (req, res) => {
       createdAt: company.created_at
     });
   } catch (error) {
-    console.error('Get company error:', error);
+    console.error('❌ Get company error:', error);
+    console.error('❌ Error details:', error.message);
     res.status(500).json({ 
       error: 'Server error',
       details: process.env.NODE_ENV === 'development' ? error.message : undefined
@@ -277,7 +301,7 @@ router.get('/me', async (req, res) => {
   }
 });
 
-// ✅ FIXED: Update company details (Admin only) - writes JSON columns properly
+// ✅ Update company details (Admin only)
 router.put('/me', async (req, res) => {
   try {
     // Check if user is admin
@@ -315,14 +339,14 @@ router.put('/me', async (req, res) => {
       idx++;
     }
 
-    // ✅ FIX: Update address as JSON
+    // ✅ Update address as JSON
     if (address) {
       updates.push(`address = $${idx}::jsonb`);
       params.push(JSON.stringify(address));
       idx++;
     }
 
-    // ✅ FIX: Update branding as JSON
+    // ✅ Update branding as JSON
     if (branding) {
       updates.push(`branding = $${idx}::jsonb`);
       params.push(JSON.stringify(branding));
@@ -351,7 +375,8 @@ router.put('/me', async (req, res) => {
       company: result.rows[0]
     });
   } catch (error) {
-    console.error('Update company error:', error);
+    console.error('❌ Update company error:', error);
+    console.error('❌ Error details:', error.message);
     res.status(500).json({ 
       error: 'Server error',
       details: process.env.NODE_ENV === 'development' ? error.message : undefined
@@ -378,7 +403,8 @@ router.get('/settings', async (req, res) => {
 
     res.json(result.rows[0]);
   } catch (error) {
-    console.error('Get settings error:', error);
+    console.error('❌ Get settings error:', error);
+    console.error('❌ Error details:', error.message);
     res.status(500).json({ 
       error: 'Server error',
       details: process.env.NODE_ENV === 'development' ? error.message : undefined
@@ -500,7 +526,8 @@ router.put('/settings', async (req, res) => {
       settings: result.rows[0]
     });
   } catch (error) {
-    console.error('Update settings error:', error);
+    console.error('❌ Update settings error:', error);
+    console.error('❌ Error details:', error.message);
     res.status(500).json({ 
       error: 'Server error',
       details: process.env.NODE_ENV === 'development' ? error.message : undefined
