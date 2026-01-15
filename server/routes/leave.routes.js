@@ -49,16 +49,16 @@ router.get('/balances/summary/all', checkPermission('view_analytics'), async (re
         u.name as "employeeName",
         u.employee_number as "employeeNumber",
         d.name as "departmentName",
-        elb.leave_type as "leaveType",
-        elb.total_days as "totalDays",
-        elb.used_days as "usedDays",
-        elb.remaining_days as "remainingDays"
-      FROM employee_leave_balances elb
-      JOIN users u ON elb.user_id = u.id
+        lb.leave_type as "leaveType",
+        lb.total_days as "totalDays",
+        lb.used_days as "usedDays",
+        lb.remaining_days as "remainingDays"
+      FROM leave_balances lb
+      JOIN users u ON lb.user_id = u.id
       LEFT JOIN departments d ON u.department_id = d.id AND d.company_id = $1
-      WHERE elb.year = $2
+      WHERE lb.year = $2
         AND u.employment_status = 'active'
-        AND elb.company_id = $1
+        AND lb.company_id = $1
         AND u.company_id = $1
     `;
     
@@ -71,7 +71,7 @@ router.get('/balances/summary/all', checkPermission('view_analytics'), async (re
       paramIndex++;
     }
     
-    query += ` ORDER BY u.name ASC, elb.leave_type ASC`;
+    query += ` ORDER BY u.name ASC, lb.leave_type ASC`;
     
     const result = await pool.query(query, params);
     
@@ -108,7 +108,7 @@ router.post(
       
       // Check if balances already exist (in same company)
       const existing = await pool.query(
-        'SELECT id FROM employee_leave_balances WHERE user_id = $1 AND year = $2 AND company_id = $3',
+        'SELECT id FROM leave_balances WHERE user_id = $1 AND year = $2 AND company_id = $3',
         [userId, year, companyId]
       );
       
@@ -118,11 +118,11 @@ router.post(
       
       // Initialize with company_id
       const result = await pool.query(
-        `INSERT INTO employee_leave_balances (user_id, leave_type, total_days, remaining_days, year, company_id)
+        `INSERT INTO leave_balances (company_id, user_id, leave_type, total_days, remaining_days, used_days, year)
          VALUES 
-           ($1, 'annual', 21, 21, $2, $3),
-           ($1, 'sick', 30, 30, $2, $3),
-           ($1, 'unpaid', 0, 0, $2, $3)
+           ($3, $1, 'annual', 21, 21, 0, $2),
+           ($3, $1, 'sick', 30, 30, 0, $2),
+           ($3, $1, 'unpaid', 0, 0, 0, $2)
          RETURNING leave_type as "leaveType", total_days as "totalDays"`,
         [userId, year, companyId]
       );
@@ -176,7 +176,7 @@ router.get('/balances/:userId', async (req, res) => {
         year,
         created_at as "createdAt",
         updated_at as "updatedAt"
-      FROM employee_leave_balances
+      FROM leave_balances
       WHERE user_id = $1 AND year = $2 AND company_id = $3
       ORDER BY 
         CASE leave_type
@@ -219,7 +219,7 @@ router.put(
       
       // Get current balance (verify company)
       const current = await pool.query(
-        'SELECT total_days, used_days FROM employee_leave_balances WHERE id = $1 AND company_id = $2',
+        'SELECT total_days, used_days FROM leave_balances WHERE id = $1 AND company_id = $2',
         [id, companyId]
       );
       
@@ -232,7 +232,7 @@ router.put(
       const newRemaining = newTotal - newUsed;
       
       const result = await pool.query(
-        `UPDATE employee_leave_balances
+        `UPDATE leave_balances
          SET total_days = $1,
              used_days = $2,
              remaining_days = $3,
@@ -430,11 +430,11 @@ router.post(
         return res.status(400).json({ error: 'Leave request must include at least one working day' });
       }
       
-      // Check leave balance (same company)
+      // ✅ CRITICAL FIX: Check leave balance using correct table name
       const currentYear = start.getFullYear();
       const balance = await pool.query(
         `SELECT remaining_days 
-         FROM employee_leave_balances 
+         FROM leave_balances 
          WHERE user_id = $1 AND leave_type = $2 AND year = $3 AND company_id = $4`,
         [userId, leaveType, currentYear, companyId]
       );
@@ -496,7 +496,12 @@ router.post(
       });
     } catch (error) {
       console.error('❌ Submit leave request error:', error);
-      res.status(500).json({ error: 'Internal server error' });
+      console.error('❌ Error details:', error.message);
+      console.error('❌ Error stack:', error.stack);
+      res.status(500).json({ 
+        error: 'Internal server error',
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
     }
   }
 );
@@ -512,12 +517,12 @@ router.post(
       
       // Get leave request details (verify company)
       const request = await pool.query(
-        `SELECT lr.*, elb.remaining_days
+        `SELECT lr.*, lb.remaining_days
          FROM leave_requests lr
-         JOIN employee_leave_balances elb ON elb.user_id = lr.user_id 
-           AND elb.leave_type = lr.leave_type 
-           AND elb.year = EXTRACT(YEAR FROM lr.start_date)
-           AND elb.company_id = lr.company_id
+         JOIN leave_balances lb ON lb.user_id = lr.user_id 
+           AND lb.leave_type = lr.leave_type 
+           AND lb.year = EXTRACT(YEAR FROM lr.start_date)
+           AND lb.company_id = lr.company_id
          WHERE lr.id = $1 AND lr.company_id = $2`,
         [id, companyId]
       );
@@ -582,7 +587,7 @@ router.post(
         // Deduct from leave balance (verify company)
         if (leaveRequest.leave_type !== 'unpaid') {
           await pool.query(
-            `UPDATE employee_leave_balances
+            `UPDATE leave_balances
              SET used_days = used_days + $1,
                  remaining_days = remaining_days - $1,
                  updated_at = CURRENT_TIMESTAMP
@@ -818,24 +823,24 @@ router.get('/reports/department/:departmentId', checkPermission('view_analytics'
         u.employee_number as "employeeNumber",
         SUM(CASE WHEN lr.status = 'approved' THEN lr.days_requested ELSE 0 END) as "daysTaken",
         COUNT(CASE WHEN lr.status = 'pending' THEN 1 END) as "pendingRequests",
-        elb_annual.remaining_days as "annualLeaveRemaining",
-        elb_sick.remaining_days as "sickLeaveRemaining"
+        lb_annual.remaining_days as "annualLeaveRemaining",
+        lb_sick.remaining_days as "sickLeaveRemaining"
       FROM users u
       LEFT JOIN leave_requests lr ON lr.user_id = u.id 
         AND EXTRACT(YEAR FROM lr.start_date) = $2
         AND lr.company_id = $3
-      LEFT JOIN employee_leave_balances elb_annual ON elb_annual.user_id = u.id 
-        AND elb_annual.leave_type = 'annual' 
-        AND elb_annual.year = $2
-        AND elb_annual.company_id = $3
-      LEFT JOIN employee_leave_balances elb_sick ON elb_sick.user_id = u.id 
-        AND elb_sick.leave_type = 'sick' 
-        AND elb_sick.year = $2
-        AND elb_sick.company_id = $3
+      LEFT JOIN leave_balances lb_annual ON lb_annual.user_id = u.id 
+        AND lb_annual.leave_type = 'annual' 
+        AND lb_annual.year = $2
+        AND lb_annual.company_id = $3
+      LEFT JOIN leave_balances lb_sick ON lb_sick.user_id = u.id 
+        AND lb_sick.leave_type = 'sick' 
+        AND lb_sick.year = $2
+        AND lb_sick.company_id = $3
       WHERE u.department_id = $1
         AND u.employment_status = 'active'
         AND u.company_id = $3
-      GROUP BY u.name, u.employee_number, elb_annual.remaining_days, elb_sick.remaining_days
+      GROUP BY u.name, u.employee_number, lb_annual.remaining_days, lb_sick.remaining_days
       ORDER BY u.name ASC`,
       [departmentId, currentYear, companyId]
     );
@@ -953,7 +958,7 @@ router.get('/reports/liability', checkPermission('view_analytics'), async (req, 
         SUM(remaining_days) as "totalUnusedDays",
         leave_type as "leaveType",
         COUNT(DISTINCT user_id) as "employeeCount"
-      FROM employee_leave_balances
+      FROM leave_balances
       WHERE year = $1 AND company_id = $2
       GROUP BY leave_type`,
       [currentYear, companyId]
