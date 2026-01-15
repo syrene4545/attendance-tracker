@@ -334,7 +334,7 @@ router.get('/:userId', async (req, res) => {
     
     const employee = result.rows[0];
     
-    // Get leave balances (filter by company)
+    // ✅ Get leave balances (filter by company AND include company_id)
     const leaveBalances = await pool.query(
       `SELECT 
         leave_type as "leaveType",
@@ -343,9 +343,11 @@ router.get('/:userId', async (req, res) => {
         remaining_days as "remainingDays",
         year
       FROM leave_balances
-      WHERE user_id = $1 AND year = EXTRACT(YEAR FROM CURRENT_DATE)
+      WHERE user_id = $1 
+        AND company_id = $2
+        AND year = EXTRACT(YEAR FROM CURRENT_DATE)
       ORDER BY leave_type`,
-      [userId]
+      [userId, companyId]
     );
     
     employee.leaveBalance = leaveBalances.rows;
@@ -518,17 +520,27 @@ router.post(
         
         const userId = userResult.rows[0].id;
         
-        // Initialize leave balances
+        // ✅ CRITICAL FIX: Initialize leave balances WITH company_id
         const currentYear = new Date().getFullYear();
         await pool.query(
-          `INSERT INTO leave_balances (user_id, leave_type, total_days, remaining_days, year)
-           VALUES 
-             ($1, 'annual', 21, 21, $2),
-             ($1, 'sick', 30, 30, $2),
-             ($1, 'family_responsibility', 3, 3, $2)
-          ON CONFLICT (user_id, leave_type, year) DO NOTHING`,
-          [userId, currentYear]
+          `INSERT INTO leave_balances (
+            company_id,
+            user_id,
+            leave_type,
+            total_days,
+            remaining_days,
+            used_days,
+            year
+          )
+          VALUES 
+            ($1, $2, 'annual', 21, 21, 0, $3),
+            ($1, $2, 'sick', 30, 30, 0, $3),
+            ($1, $2, 'family_responsibility', 3, 3, 0, $3)
+          ON CONFLICT (company_id, user_id, leave_type, year) DO NOTHING`,
+          [companyId, userId, currentYear]
         );
+        
+        console.log('✅ Leave balances initialized with company_id:', companyId);
         
         // Commit transaction
         await pool.query('COMMIT');
@@ -557,7 +569,12 @@ router.post(
       }
     } catch (error) {
       console.error('❌ Create employee error:', error);
-      res.status(500).json({ error: 'Internal server error', details: error.message });
+      console.error('❌ Error details:', error.message);
+      console.error('❌ Error stack:', error.stack);
+      res.status(500).json({ 
+        error: 'Internal server error', 
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
     }
   }
 );
