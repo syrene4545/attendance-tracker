@@ -431,27 +431,62 @@ router.post(
       }
       
       // ✅ CRITICAL FIX: Check leave balance using correct table name
+      // const currentYear = start.getFullYear();
+      // const balance = await pool.query(
+      //   `SELECT remaining_days 
+      //    FROM leave_balances 
+      //    WHERE user_id = $1 AND leave_type = $2 AND year = $3 AND company_id = $4`,
+      //   [userId, leaveType, currentYear, companyId]
+      // );
+      
+      // if (balance.rows.length === 0) {
+      //   return res.status(400).json({ error: 'Leave balance not found for this leave type' });
+      // }
+      
+      // const remainingDays = parseFloat(balance.rows[0].remaining_days);
+      
+      // if (leaveType !== 'unpaid' && totalDays > remainingDays) {
+      //   return res.status(400).json({ 
+      //     error: 'Insufficient leave balance',
+      //     requested: totalDays,
+      //     available: remainingDays
+      //   });
+      // }
+
+      // ✅ FIXED: Only check balances for balance-required leave types
       const currentYear = start.getFullYear();
-      const balance = await pool.query(
-        `SELECT remaining_days 
-         FROM leave_balances 
-         WHERE user_id = $1 AND leave_type = $2 AND year = $3 AND company_id = $4`,
-        [userId, leaveType, currentYear, companyId]
-      );
-      
-      if (balance.rows.length === 0) {
-        return res.status(400).json({ error: 'Leave balance not found for this leave type' });
+
+      // Define which leave types require balance checking
+      const balanceRequiredTypes = ['annual', 'sick', 'family_responsibility'];
+
+      // Only check balance for leave types that require it
+      if (balanceRequiredTypes.includes(leaveType)) {
+        const balance = await pool.query(
+          `SELECT remaining_days 
+          FROM leave_balances 
+          WHERE user_id = $1 AND leave_type = $2 AND year = $3 AND company_id = $4`,
+          [userId, leaveType, currentYear, companyId]
+        );
+        
+        if (balance.rows.length === 0) {
+          return res.status(400).json({ 
+            error: `No leave balance configured for ${leaveType}. Please contact HR to initialize your leave balance.`
+          });
+        }
+        
+        const remainingDays = Number(balance.rows[0].remaining_days);
+        
+        if (totalDays > remainingDays) {
+          return res.status(400).json({ 
+            error: 'Insufficient leave balance',
+            requested: totalDays,
+            available: remainingDays
+          });
+        }
       }
-      
-      const remainingDays = parseFloat(balance.rows[0].remaining_days);
-      
-      if (leaveType !== 'unpaid' && totalDays > remainingDays) {
-        return res.status(400).json({ 
-          error: 'Insufficient leave balance',
-          requested: totalDays,
-          available: remainingDays
-        });
-      }
+
+      // Note: unpaid, maternity, paternity, and study leave do not require balance checking
+      // as they are typically unlimited or approved on a case-by-case basis
       
       // Check for overlapping leave requests (same company)
       const overlapping = await pool.query(
