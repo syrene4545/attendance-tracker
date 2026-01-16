@@ -415,6 +415,7 @@ router.get('/requests/:id', async (req, res) => {
 });
 
 // Submit leave request
+
 router.post(
   '/requests',
   body('leaveType').isIn(['annual', 'sick', 'maternity', 'paternity', 'unpaid', 'study']),
@@ -425,12 +426,21 @@ router.post(
     try {
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
+        console.error('❌ Validation errors:', errors.array());
         return res.status(400).json({ error: 'Invalid input', details: errors.array() });
       }
       
       const { leaveType, startDate, endDate, reason } = req.body;
       const userId = req.user.id;
       const companyId = req.companyId;
+      
+      console.log('📥 Leave request submission:', {
+        userId,
+        companyId,
+        leaveType,
+        startDate,
+        endDate
+      });
       
       // Validate dates
       const start = new Date(startDate);
@@ -457,51 +467,31 @@ router.post(
         return res.status(400).json({ error: 'Leave request must include at least one working day' });
       }
       
-      // ✅ CRITICAL FIX: Check leave balance using correct table name
-      // const currentYear = start.getFullYear();
-      // const balance = await pool.query(
-      //   `SELECT remaining_days 
-      //    FROM leave_balances 
-      //    WHERE user_id = $1 AND leave_type = $2 AND year = $3 AND company_id = $4`,
-      //   [userId, leaveType, currentYear, companyId]
-      // );
+      console.log(`📊 Calculated ${totalDays} working days`);
       
-      // if (balance.rows.length === 0) {
-      //   return res.status(400).json({ error: 'Leave balance not found for this leave type' });
-      // }
-      
-      // const remainingDays = parseFloat(balance.rows[0].remaining_days);
-      
-      // if (leaveType !== 'unpaid' && totalDays > remainingDays) {
-      //   return res.status(400).json({ 
-      //     error: 'Insufficient leave balance',
-      //     requested: totalDays,
-      //     available: remainingDays
-      //   });
-      // }
-
       // ✅ FIXED: Only check balances for balance-required leave types
       const currentYear = start.getFullYear();
-
-      // Define which leave types require balance checking
       const balanceRequiredTypes = ['annual', 'sick'];
-
-      // Only check balance for leave types that require it
+      
       if (balanceRequiredTypes.includes(leaveType)) {
+        console.log('🔍 Checking leave balance for', leaveType);
+        
         const balance = await pool.query(
           `SELECT remaining_days 
-          FROM leave_balances 
-          WHERE user_id = $1 AND leave_type = $2 AND year = $3 AND company_id = $4`,
+           FROM leave_balances 
+           WHERE user_id = $1 AND leave_type = $2 AND year = $3 AND company_id = $4`,
           [userId, leaveType, currentYear, companyId]
         );
         
         if (balance.rows.length === 0) {
+          console.error('❌ No leave balance found for', leaveType);
           return res.status(400).json({ 
             error: `No leave balance configured for ${leaveType}. Please contact HR to initialize your leave balance.`
           });
         }
         
         const remainingDays = Number(balance.rows[0].remaining_days);
+        console.log(`📊 Available balance: ${remainingDays} days`);
         
         if (totalDays > remainingDays) {
           return res.status(400).json({ 
@@ -510,12 +500,12 @@ router.post(
             available: remainingDays
           });
         }
+      } else {
+        console.log('ℹ️ No balance check required for', leaveType);
       }
-
-      // Note: unpaid, maternity, paternity, and study leave do not require balance checking
-      // as they are typically unlimited or approved on a case-by-case basis
       
       // Check for overlapping leave requests (same company)
+      console.log('🔍 Checking for overlapping requests');
       const overlapping = await pool.query(
         `SELECT id FROM leave_requests
          WHERE user_id = $1
@@ -530,27 +520,38 @@ router.post(
       );
       
       if (overlapping.rows.length > 0) {
+        console.error('❌ Overlapping leave request found:', overlapping.rows[0].id);
         return res.status(400).json({ error: 'You have an overlapping leave request' });
       }
       
-      // Create leave request with company_id
+      // ✅ CRITICAL FIX: Create leave request with BOTH days_requested AND total_days
+      console.log('💾 Inserting leave request into database');
       const result = await pool.query(
         `INSERT INTO leave_requests (
-          user_id, leave_type, start_date, end_date, days_requested, reason, status, company_id
+          company_id,
+          user_id,
+          leave_type,
+          start_date,
+          end_date,
+          days_requested,
+          total_days,
+          reason,
+          status
         )
-        VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7)
+        VALUES ($1, $2, $3, $4, $5, $6, $6, $7, 'pending')
         RETURNING 
           id,
           leave_type as "leaveType",
           start_date as "startDate",
           end_date as "endDate",
-          days_requested as "totalDays",
+          days_requested as "daysRequested",
+          total_days as "totalDays",
           status,
           created_at as "createdAt"`,
-        [userId, leaveType, startDate, endDate, totalDays, reason || null, companyId]
+        [companyId, userId, leaveType, startDate, endDate, totalDays, reason || null]
       );
       
-      console.log('✅ Leave request submitted:', result.rows[0]);
+      console.log('✅ Leave request submitted successfully:', result.rows[0]);
       
       res.status(201).json({
         message: 'Leave request submitted successfully',
@@ -558,7 +559,10 @@ router.post(
       });
     } catch (error) {
       console.error('❌ Submit leave request error:', error);
-      console.error('❌ Error details:', error.message);
+      console.error('❌ Error code:', error.code);
+      console.error('❌ Error detail:', error.detail);
+      console.error('❌ Error constraint:', error.constraint);
+      console.error('❌ Error message:', error.message);
       console.error('❌ Error stack:', error.stack);
       res.status(500).json({ 
         error: 'Internal server error',
@@ -567,8 +571,6 @@ router.post(
     }
   }
 );
-
-// Approve leave request
 
 // Approve leave request
 router.post(
@@ -707,149 +709,6 @@ router.post(
   }
 );
 
-// router.post(
-//   '/requests/:id/approve',
-//   checkPermission('manage_users'),
-//   async (req, res) => {
-//     try {
-//       const { id } = req.params;
-//       const companyId = req.companyId;
-
-//       const request = await pool.query(
-//         `SELECT lr.*, lb.remaining_days
-//         FROM leave_requests lr
-//         LEFT JOIN leave_balances lb ON lb.user_id = lr.user_id 
-//           AND lb.leave_type = lr.leave_type 
-//           AND lb.year = EXTRACT(YEAR FROM lr.start_date)
-//           AND lb.company_id = lr.company_id
-//         WHERE lr.id = $1 AND lr.company_id = $2`,
-//         [id, companyId]
-//       );
-      
-//       if (request.rows.length === 0) {
-//         return res.status(404).json({ error: 'Leave request not found' });
-//       }
-      
-//       const leaveRequest = request.rows[0];
-      
-//       if (leaveRequest.status !== 'pending') {
-//         return res.status(400).json({ error: 'Leave request is not pending' });
-//       }
-      
-//       // Check if approver is trying to approve their own request
-//       if (leaveRequest.user_id === req.user.id) {
-//         return res.status(403).json({ error: 'You cannot approve your own leave request' });
-//       }
-
-//       // Deduct from leave balance (verify company)
-//       // ✅ FIXED: Only deduct for balance-required leave types
-//       const balanceRequiredTypes = ['annual', 'sick'];
-//       if (balanceRequiredTypes.includes(leaveRequest.leave_type)) {
-//         const deductResult = await pool.query(
-//           `UPDATE leave_balances
-//           SET used_days = used_days + $1,
-//               remaining_days = remaining_days - $1,
-//               updated_at = CURRENT_TIMESTAMP
-//           WHERE user_id = $2 
-//             AND leave_type = $3 
-//             AND year = EXTRACT(YEAR FROM $4::date)
-//             AND company_id = $5
-//           RETURNING id`,
-//           [leaveRequest.days_requested, leaveRequest.user_id, leaveRequest.leave_type, leaveRequest.start_date, companyId]
-//         );
-        
-//         if (deductResult.rows.length === 0) {
-//           console.error('❌ Failed to deduct leave balance:', {
-//             userId: leaveRequest.user_id,
-//             leaveType: leaveRequest.leave_type,
-//             requestId: id
-//           });
-//           throw new Error('Failed to update leave balance');
-//         }
-        
-//         console.log('✅ Leave balance deducted:', {
-//           userId: leaveRequest.user_id,
-//           leaveType: leaveRequest.leave_type,
-//           daysDeducted: leaveRequest.days_requested
-//         });
-//       } else {
-//         console.log('ℹ️ No balance deduction needed for', leaveRequest.leave_type);
-//       }
-
-//       // Special handling for sick leave - check 3-year cycle (same company)
-//       if (leaveRequest.leave_type === 'sick') {
-//         const currentYear = new Date().getFullYear();
-//         const cycleStartYear = currentYear - 2;
-        
-//         const cycleUsageResult = await pool.query(
-//           `SELECT COALESCE(SUM(days_requested), 0) as total_used
-//            FROM leave_requests
-//            WHERE user_id = $1 
-//              AND leave_type = 'sick'
-//              AND status = 'approved'
-//              AND EXTRACT(YEAR FROM start_date) >= $2
-//              AND company_id = $3`,
-//           [leaveRequest.user_id, cycleStartYear, companyId]
-//         );
-        
-//         const totalUsedInCycle = parseFloat(cycleUsageResult.rows[0].total_used);
-//         const totalAllowance = 30;
-//         const availableInCycle = totalAllowance - totalUsedInCycle;
-        
-//         if (leaveRequest.days_requested > availableInCycle) {
-//           return res.status(400).json({ 
-//             error: `Insufficient sick leave balance in 3-year cycle. Employee has ${availableInCycle} days available (${totalUsedInCycle} of 30 days used since ${cycleStartYear}).`
-//           });
-//         }
-//       }
-      
-//       // Begin transaction
-//       await pool.query('BEGIN');
-      
-//       try {
-//         // Update leave request status (verify company)
-//         await pool.query(
-//           `UPDATE leave_requests
-//            SET status = 'approved',
-//                reviewed_by = $1,
-//                reviewed_at = CURRENT_TIMESTAMP,
-//                updated_at = CURRENT_TIMESTAMP
-//            WHERE id = $2 AND company_id = $3`,
-//           [req.user.id, id, companyId]
-//         );
-        
-//         // Deduct from leave balance (verify company)
-//         if (leaveRequest.leave_type !== 'unpaid') {
-//           await pool.query(
-//             `UPDATE leave_balances
-//              SET used_days = used_days + $1,
-//                  remaining_days = remaining_days - $1,
-//                  updated_at = CURRENT_TIMESTAMP
-//              WHERE user_id = $2 
-//                AND leave_type = $3 
-//                AND year = EXTRACT(YEAR FROM $4::date)
-//                AND company_id = $5`,
-//             [leaveRequest.days_requested, leaveRequest.user_id, leaveRequest.leave_type, leaveRequest.start_date, companyId]
-//           );
-//         }
-        
-//         await pool.query('COMMIT');
-        
-//         console.log('✅ Leave request approved:', id);
-        
-//         res.json({ message: 'Leave request approved successfully' });
-//       } catch (error) {
-//         await pool.query('ROLLBACK');
-//         throw error;
-//       }
-//     } catch (error) {
-//       console.error('❌ Approve leave request error:', error);
-//       res.status(500).json({ error: 'Internal server error' });
-//     }
-//   }
-// );
-
-// Reject leave request
 router.post(
   '/requests/:id/reject',
   checkPermission('manage_users'),
