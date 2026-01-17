@@ -1,18 +1,27 @@
 import { pool } from '../index.js';
 
-export async function seedCompanySOPs({ companyId, adminId, dryRun = false }) {
+export async function seedCompanySOPs({ 
+  companyId, 
+  adminId, 
+  dryRun = false,
+  customTemplates = null 
+}) {
+  // Use custom templates if provided, otherwise use defaults
+  const templates = customTemplates || DEFAULT_SOP_TEMPLATES;
+
   // ✅ DRY RUN MODE: Preview without making changes
   if (dryRun) {
     return {
       dryRun: true,
       message: 'Dry run completed - no changes made',
-      wouldCreate: SOP_TEMPLATES.map(t => ({
+      wouldCreate: templates.map(t => ({
         title: t.title,
         category: t.category,
         status: t.status,
-        version: t.templateVersion
+        version: t.templateVersion || t.version
       })),
-      totalTemplates: SOP_TEMPLATES.length
+      totalTemplates: templates.length,
+      usingCustomTemplates: customTemplates !== null
     };
   }
 
@@ -24,7 +33,8 @@ export async function seedCompanySOPs({ companyId, adminId, dryRun = false }) {
     console.log('🌱 SOP seeding started', {
       companyId,
       adminId,
-      templateCount: SOP_TEMPLATES.length,
+      templateCount: templates.length,
+      customTemplates: customTemplates !== null,
       timestamp: new Date().toISOString()
     });
 
@@ -33,8 +43,8 @@ export async function seedCompanySOPs({ companyId, adminId, dryRun = false }) {
     const createdSOPs = [];
     const skippedSOPs = [];
 
-    for (const sop of SOP_TEMPLATES) {
-      // ✅ REFINED: Check if SOP already exists for this company
+    for (const sop of templates) {
+      // ✅ Check if SOP already exists for this company
       const existing = await client.query(
         `SELECT id, title FROM sops
          WHERE company_id = $1 
@@ -49,7 +59,8 @@ export async function seedCompanySOPs({ companyId, adminId, dryRun = false }) {
         continue;
       }
 
-      // ✅ REFINED: Create new SOP with template versioning
+      // ✅ Create new SOP with template versioning
+      const version = sop.templateVersion || sop.version || '1.0';
       const result = await client.query(
         `INSERT INTO sops (
           company_id,
@@ -68,20 +79,19 @@ export async function seedCompanySOPs({ companyId, adminId, dryRun = false }) {
           companyId,
           sop.title,
           sop.category,
-          sop.description,
+          sop.description || '',
           sop.content,
-          sop.templateVersion, // ✅ Using explicit template version
-          sop.status,
+          version,
+          sop.status || 'draft',
           adminId
         ]
       );
 
-      console.log(`✅ Created SOP: ${result.rows[0].title} (${result.rows[0].status}) v${sop.templateVersion}`);
+      console.log(`✅ Created SOP: ${result.rows[0].title} (${result.rows[0].status}) v${version}`);
       created++;
       createdSOPs.push(result.rows[0].title);
 
-      // ✅ REFINED: Auto-create acknowledgment records for active SOPs
-      // Fixed to use employee_profiles table correctly
+      // ✅ Auto-create acknowledgment records for active SOPs
       if (result.rows[0].status === 'active') {
         const ackResult = await client.query(
           `INSERT INTO sop_acknowledgments (company_id, sop_id, user_id, acknowledged_at)
@@ -104,16 +114,18 @@ export async function seedCompanySOPs({ companyId, adminId, dryRun = false }) {
       companyId,
       created,
       skipped,
-      totalTemplates: SOP_TEMPLATES.length,
+      totalTemplates: templates.length,
+      customTemplates: customTemplates !== null,
       timestamp: new Date().toISOString()
     });
 
     return {
       created,
       skipped,
-      totalTemplates: SOP_TEMPLATES.length,
+      totalTemplates: templates.length,
       createdSOPs,
-      skippedSOPs
+      skippedSOPs,
+      usingCustomTemplates: customTemplates !== null
     };
 
   } catch (error) {
@@ -130,8 +142,8 @@ export async function seedCompanySOPs({ companyId, adminId, dryRun = false }) {
   }
 }
 
-// ✅ REFINED: Template definitions with explicit versioning
-const SOP_TEMPLATES = [
+// ✅ Export default templates so they can be used elsewhere
+export const DEFAULT_SOP_TEMPLATES = [
   {
     key: 'attendance_policy',
     templateVersion: '1.0',

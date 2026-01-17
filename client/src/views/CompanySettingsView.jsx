@@ -19,6 +19,9 @@ import {
   AlertCircle,
   ArrowRight,
   Check,
+  FileText,
+  Loader2,
+  BookOpen,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../api/api';
@@ -67,6 +70,14 @@ const CompanySettingsView = () => {
 
   // Add state for showing plans modal
   const [showPlansModal, setShowPlansModal] = useState(false);
+
+  // Add after existing state declarations
+  const [sopSeeding, setSopSeeding] = useState({
+    isSeeding: false,
+    seedResult: null,
+    error: null,
+    isDryRun: false
+  });
 
   // ✅ FIX: Load company data only when company exists
   useEffect(() => {
@@ -302,6 +313,50 @@ const CompanySettingsView = () => {
     }
   };
 
+  // Add before the return statement
+
+  // Handle SOP seeding
+  const handleSeedSOPs = async (dryRun = false) => {
+    setSopSeeding({ ...sopSeeding, isSeeding: true, error: null, seedResult: null, isDryRun: dryRun });
+
+    try {
+      console.log(`🌱 ${dryRun ? 'Dry run' : 'Seeding'} SOPs...`);
+      
+      const response = await api.post(
+        `admin/seed/sops${dryRun ? '?dryRun=true' : ''}`
+      );
+
+      setSopSeeding({
+        ...sopSeeding,
+        isSeeding: false,
+        seedResult: response.data,
+        error: null,
+        isDryRun: dryRun
+      });
+
+      if (!dryRun) {
+        setMessage({ 
+          type: 'success', 
+          text: `Successfully seeded ${response.data.created} SOPs!` 
+        });
+      }
+
+      console.log('✅ SOP seeding completed:', response.data);
+    } catch (err) {
+      console.error('❌ SOP seeding error:', err);
+      setSopSeeding({
+        ...sopSeeding,
+        isSeeding: false,
+        error: err.response?.data?.error || 'Failed to seed SOPs',
+        seedResult: null
+      });
+      setMessage({ 
+        type: 'error', 
+        text: err.response?.data?.error || 'Failed to seed SOPs' 
+      });
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 p-6">
       <div className="max-w-6xl mx-auto">
@@ -385,6 +440,21 @@ const CompanySettingsView = () => {
                 <div className="flex items-center gap-2">
                   <SettingsIcon className="w-4 h-4" />
                   System Settings
+                </div>
+              </button>
+
+              {/* Add this tab after the "System Settings" tab and before "Subscription" tab */}
+              <button
+                onClick={() => setActiveTab('sops')}
+                className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
+                  activeTab === 'sops'
+                    ? 'border-indigo-600 text-indigo-600'
+                    : 'border-transparent text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <BookOpen className="w-4 h-4" />
+                  SOPs
                 </div>
               </button>
 
@@ -919,6 +989,258 @@ const CompanySettingsView = () => {
                     <Save className="w-4 h-4" />
                     {loading ? 'Saving...' : 'Save Settings'}
                   </button>
+                </div>
+              </div>
+            )}
+
+            {/* SOP Management Tab */}
+            {activeTab === 'sops' && (
+              <div className="space-y-6">
+                {/* Header */}
+                <div>
+                  <h2 className="text-lg font-semibold text-gray-900 mb-2">
+                    Standard Operating Procedures
+                  </h2>
+                  <p className="text-sm text-gray-600">
+                    Initialize your company with standard HR policies and procedures including 
+                    attendance policies, leave procedures, code of conduct, data security, and more.
+                  </p>
+                </div>
+
+                {/* Info Card */}
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                  <div className="flex items-start gap-3">
+                    <FileText className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <h4 className="font-medium text-blue-900 mb-1">
+                        What are SOPs?
+                      </h4>
+                      <p className="text-sm text-blue-800">
+                        Standard Operating Procedures are company-wide policies and procedures that 
+                        employees must acknowledge. This includes attendance policies, leave management, 
+                        code of conduct, and security guidelines.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Seeding Options */}
+                <div className="bg-white border border-gray-200 rounded-lg p-6">
+                  <h3 className="font-semibold text-gray-900 mb-4">Initialize SOPs</h3>
+                  
+                  <p className="text-sm text-gray-600 mb-6">
+                    Click below to seed your company with standard HR policies. This is safe to run 
+                    multiple times - existing SOPs won't be duplicated.
+                  </p>
+
+                  {/* Action Buttons */}
+                  <div className="flex flex-wrap gap-3 mb-6">
+                    <button
+                      onClick={() => handleSeedSOPs(false)}
+                      disabled={sopSeeding.isSeeding}
+                      className="flex items-center gap-2 px-6 py-2.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    >
+                      {sopSeeding.isSeeding && !sopSeeding.isDryRun && (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      )}
+                      <FileText className="w-4 h-4" />
+                      Seed Company SOPs
+                    </button>
+
+                    <button
+                      onClick={() => handleSeedSOPs(true)}
+                      disabled={sopSeeding.isSeeding}
+                      className="flex items-center gap-2 px-6 py-2.5 border border-gray-300 bg-white text-gray-700 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    >
+                      {sopSeeding.isSeeding && sopSeeding.isDryRun && (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      )}
+                      Preview (Dry Run)
+                    </button>
+                  </div>
+
+                  {/* Success Result */}
+                  {sopSeeding.seedResult && !sopSeeding.error && (
+                    <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                      <div className="flex items-start gap-3">
+                        <CheckCircle className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
+                        <div className="flex-1">
+                          <h4 className="font-medium text-green-900 mb-2">
+                            {sopSeeding.seedResult.message}
+                          </h4>
+                          
+                          <div className="space-y-2 text-sm text-green-800">
+                            <div className="grid grid-cols-2 gap-4">
+                              <div className="bg-green-100 rounded-lg p-3">
+                                <div className="text-xs text-green-700 mb-1">Created</div>
+                                <div className="text-2xl font-bold text-green-900">
+                                  {sopSeeding.seedResult.created}
+                                </div>
+                              </div>
+                              
+                              <div className="bg-green-100 rounded-lg p-3">
+                                <div className="text-xs text-green-700 mb-1">Skipped</div>
+                                <div className="text-2xl font-bold text-green-900">
+                                  {sopSeeding.seedResult.skipped}
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="pt-2">
+                              <div className="text-xs text-green-700 font-medium">
+                                Total Templates: {sopSeeding.seedResult.totalTemplates}
+                              </div>
+                            </div>
+
+                            {sopSeeding.isDryRun && (
+                              <div className="mt-3 pt-3 border-t border-green-300">
+                                <div className="text-xs font-medium text-green-900 mb-1">
+                                  ℹ️ This was a preview - no changes were made
+                                </div>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Show created SOPs */}
+                          {sopSeeding.seedResult.createdSOPs && sopSeeding.seedResult.createdSOPs.length > 0 && (
+                            <div className="mt-4 pt-4 border-t border-green-300">
+                              <div className="text-sm font-medium text-green-900 mb-2">
+                                {sopSeeding.isDryRun ? 'Would Create:' : 'Created SOPs:'}
+                              </div>
+                              <ul className="space-y-1">
+                                {sopSeeding.seedResult.createdSOPs.map((sop, idx) => (
+                                  <li key={idx} className="flex items-center gap-2 text-sm text-green-800">
+                                    <Check className="w-3 h-3 text-green-600" />
+                                    {sop}
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+
+                          {/* Show skipped SOPs */}
+                          {sopSeeding.seedResult.skippedSOPs && sopSeeding.seedResult.skippedSOPs.length > 0 && (
+                            <div className="mt-4 pt-4 border-t border-green-300">
+                              <div className="text-sm font-medium text-green-900 mb-2">
+                                Already Exists:
+                              </div>
+                              <ul className="space-y-1">
+                                {sopSeeding.seedResult.skippedSOPs.map((sop, idx) => (
+                                  <li key={idx} className="flex items-center gap-2 text-sm text-green-800">
+                                    <CheckCircle className="w-3 h-3 text-green-600" />
+                                    {sop}
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Error */}
+                  {sopSeeding.error && (
+                    <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                      <div className="flex items-start gap-3">
+                        <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+                        <div className="flex-1">
+                          <h4 className="font-medium text-red-900 mb-1">
+                            Seeding Failed
+                          </h4>
+                          <p className="text-sm text-red-800">
+                            {sopSeeding.error}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Available Templates Preview */}
+                <div className="bg-white border border-gray-200 rounded-lg p-6">
+                  <h3 className="font-semibold text-gray-900 mb-4">Available Templates</h3>
+                  
+                  <div className="space-y-3">
+                    {[
+                      {
+                        title: 'Attendance Policy',
+                        category: 'Policy',
+                        description: 'Standard working hours, clock-in/out requirements, and late arrival procedures'
+                      },
+                      {
+                        title: 'Leave Request Procedure',
+                        category: 'Procedure',
+                        description: 'How to request annual, sick, and other types of leave'
+                      },
+                      {
+                        title: 'Code of Conduct',
+                        category: 'Policy',
+                        description: 'Professional behavior, respect, confidentiality, and ethical standards'
+                      },
+                      {
+                        title: 'Data Security Policy',
+                        category: 'Policy',
+                        description: 'Password requirements, data access, and device security guidelines'
+                      },
+                      {
+                        title: 'Performance Review Process',
+                        category: 'Procedure',
+                        description: 'Annual review schedule, components, and goal-setting guidelines'
+                      },
+                      {
+                        title: 'Health and Safety Policy',
+                        category: 'Policy',
+                        description: 'Workplace safety, emergency procedures, and accident reporting'
+                      }
+                    ].map((template, idx) => (
+                      <div key={idx} className="border border-gray-200 rounded-lg p-4 hover:border-indigo-300 transition-colors">
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 mb-1">
+                              <h4 className="font-medium text-gray-900">{template.title}</h4>
+                              <span className="px-2 py-0.5 bg-indigo-100 text-indigo-700 text-xs rounded-full">
+                                {template.category}
+                              </span>
+                            </div>
+                            <p className="text-sm text-gray-600">
+                              {template.description}
+                            </p>
+                          </div>
+                          <FileText className="w-5 h-5 text-gray-400 flex-shrink-0 ml-3" />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="mt-4 pt-4 border-t border-gray-200">
+                    <p className="text-xs text-gray-500">
+                      💡 These templates will be customized with your company information and made available 
+                      to all employees for acknowledgment.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Help Section */}
+                <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                  <div className="flex items-start gap-3">
+                    <AlertCircle className="w-5 h-5 text-gray-600 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <h4 className="font-medium text-gray-900 mb-1">
+                        Need Custom SOPs?
+                      </h4>
+                      <p className="text-sm text-gray-600 mb-2">
+                        Want to add industry-specific policies or custom procedures? Contact our support 
+                        team for assistance with creating tailored SOPs for your organization.
+                      </p>
+                      <a 
+                        href="mailto:support@yourapp.com"
+                        className="text-sm font-medium text-indigo-600 hover:text-indigo-700"
+                      >
+                        Contact Support →
+                      </a>
+                    </div>
+                  </div>
                 </div>
               </div>
             )}
