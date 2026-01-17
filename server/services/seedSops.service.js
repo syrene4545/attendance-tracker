@@ -1,148 +1,8 @@
 import { pool } from '../index.js';
 
-export async function seedCompanySOPs({ 
-  companyId, 
-  adminId, 
-  dryRun = false,
-  customTemplates = null 
-}) {
-  // Use custom templates if provided, otherwise use defaults
-  const templates = customTemplates || DEFAULT_SOP_TEMPLATES;
+// ✅ CRITICAL FIX: Move DEFAULT_SOP_TEMPLATES BEFORE the function
+// This prevents "Cannot access before initialization" ReferenceError
 
-  // ✅ DRY RUN MODE: Preview without making changes
-  if (dryRun) {
-    return {
-      dryRun: true,
-      message: 'Dry run completed - no changes made',
-      wouldCreate: templates.map(t => ({
-        title: t.title,
-        category: t.category,
-        status: t.status,
-        version: t.templateVersion || t.version
-      })),
-      totalTemplates: templates.length,
-      usingCustomTemplates: customTemplates !== null
-    };
-  }
-
-  const client = await pool.connect();
-
-  try {
-    await client.query('BEGIN');
-
-    console.log('🌱 SOP seeding started', {
-      companyId,
-      adminId,
-      templateCount: templates.length,
-      customTemplates: customTemplates !== null,
-      timestamp: new Date().toISOString()
-    });
-
-    let created = 0;
-    let skipped = 0;
-    const createdSOPs = [];
-    const skippedSOPs = [];
-
-    for (const sop of templates) {
-      // ✅ Check if SOP already exists for this company
-      const existing = await client.query(
-        `SELECT id, title FROM sops
-         WHERE company_id = $1 
-           AND LOWER(title) = LOWER($2)`,
-        [companyId, sop.title]
-      );
-
-      if (existing.rows.length > 0) {
-        console.log(`⏭️  Skipping existing SOP: ${sop.title}`);
-        skipped++;
-        skippedSOPs.push(sop.title);
-        continue;
-      }
-
-      // ✅ Create new SOP with template versioning
-      const version = sop.templateVersion || sop.version || '1.0';
-      const result = await client.query(
-        `INSERT INTO sops (
-          company_id,
-          title,
-          category,
-          description,
-          content,
-          version,
-          status,
-          effective_date,
-          created_by
-        )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_DATE, $8)
-        RETURNING id, title, status`,
-        [
-          companyId,
-          sop.title,
-          sop.category,
-          sop.description || '',
-          sop.content,
-          version,
-          sop.status || 'draft',
-          adminId
-        ]
-      );
-
-      console.log(`✅ Created SOP: ${result.rows[0].title} (${result.rows[0].status}) v${version}`);
-      created++;
-      createdSOPs.push(result.rows[0].title);
-
-      // ✅ Auto-create acknowledgment records for active SOPs
-      if (result.rows[0].status === 'active') {
-        const ackResult = await client.query(
-          `INSERT INTO sop_acknowledgments (company_id, sop_id, user_id, acknowledged_at)
-           SELECT $1, $2, u.id, NULL
-           FROM users u
-           WHERE u.company_id = $1
-             AND u.employment_status = 'active'
-           ON CONFLICT (company_id, sop_id, user_id) DO NOTHING
-           RETURNING id`,
-          [companyId, result.rows[0].id]
-        );
-        
-        console.log(`📝 Created ${ackResult.rowCount} acknowledgment records for: ${result.rows[0].title}`);
-      }
-    }
-
-    await client.query('COMMIT');
-
-    console.log('✅ SOP seeding completed', {
-      companyId,
-      created,
-      skipped,
-      totalTemplates: templates.length,
-      customTemplates: customTemplates !== null,
-      timestamp: new Date().toISOString()
-    });
-
-    return {
-      created,
-      skipped,
-      totalTemplates: templates.length,
-      createdSOPs,
-      skippedSOPs,
-      usingCustomTemplates: customTemplates !== null
-    };
-
-  } catch (error) {
-    await client.query('ROLLBACK');
-    console.error('❌ SOP seeding failed', {
-      companyId,
-      adminId,
-      error: error.message,
-      timestamp: new Date().toISOString()
-    });
-    throw error;
-  } finally {
-    client.release();
-  }
-}
-
-// ✅ Export default templates so they can be used elsewhere
 export const DEFAULT_SOP_TEMPLATES = [
   {
     key: 'attendance_policy',
@@ -329,3 +189,146 @@ export const DEFAULT_SOP_TEMPLATES = [
     status: 'draft'
   }
 ];
+
+// ✅ NOW the function can safely access DEFAULT_SOP_TEMPLATES
+export async function seedCompanySOPs({ 
+  companyId, 
+  adminId, 
+  dryRun = false,
+  customTemplates = null 
+}) {
+  // ✅ This line now works because DEFAULT_SOP_TEMPLATES is defined above
+  const templates = customTemplates || DEFAULT_SOP_TEMPLATES;
+
+  // ✅ DRY RUN MODE: Preview without making changes
+  if (dryRun) {
+    return {
+      dryRun: true,
+      message: 'Dry run completed - no changes made',
+      wouldCreate: templates.map(t => ({
+        title: t.title,
+        category: t.category,
+        status: t.status,
+        version: t.templateVersion || t.version
+      })),
+      totalTemplates: templates.length,
+      usingCustomTemplates: customTemplates !== null
+    };
+  }
+
+  const client = await pool.connect();
+
+  try {
+    await client.query('BEGIN');
+
+    console.log('🌱 SOP seeding started', {
+      companyId,
+      adminId,
+      templateCount: templates.length,
+      customTemplates: customTemplates !== null,
+      timestamp: new Date().toISOString()
+    });
+
+    let created = 0;
+    let skipped = 0;
+    const createdSOPs = [];
+    const skippedSOPs = [];
+
+    for (const sop of templates) {
+      // ✅ Check if SOP already exists for this company
+      const existing = await client.query(
+        `SELECT id, title FROM sops
+         WHERE company_id = $1 
+           AND LOWER(title) = LOWER($2)`,
+        [companyId, sop.title]
+      );
+
+      if (existing.rows.length > 0) {
+        console.log(`⏭️  Skipping existing SOP: ${sop.title}`);
+        skipped++;
+        skippedSOPs.push(sop.title);
+        continue;
+      }
+
+      // ✅ Create new SOP with template versioning
+      const version = sop.templateVersion || sop.version || '1.0';
+      const result = await client.query(
+        `INSERT INTO sops (
+          company_id,
+          title,
+          category,
+          description,
+          content,
+          version,
+          status,
+          effective_date,
+          created_by
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_DATE, $8)
+        RETURNING id, title, status`,
+        [
+          companyId,
+          sop.title,
+          sop.category,
+          sop.description || '',
+          sop.content,
+          version,
+          sop.status || 'draft',
+          adminId
+        ]
+      );
+
+      console.log(`✅ Created SOP: ${result.rows[0].title} (${result.rows[0].status}) v${version}`);
+      created++;
+      createdSOPs.push(result.rows[0].title);
+
+      // ✅ Auto-create acknowledgment records for active SOPs
+      if (result.rows[0].status === 'active') {
+        const ackResult = await client.query(
+          `INSERT INTO sop_acknowledgments (company_id, sop_id, user_id, acknowledged_at)
+           SELECT $1, $2, u.id, NULL
+           FROM users u
+           WHERE u.company_id = $1
+             AND u.employment_status = 'active'
+           ON CONFLICT (company_id, sop_id, user_id) DO NOTHING
+           RETURNING id`,
+          [companyId, result.rows[0].id]
+        );
+        
+        console.log(`📝 Created ${ackResult.rowCount} acknowledgment records for: ${result.rows[0].title}`);
+      }
+    }
+
+    await client.query('COMMIT');
+
+    console.log('✅ SOP seeding completed', {
+      companyId,
+      created,
+      skipped,
+      totalTemplates: templates.length,
+      customTemplates: customTemplates !== null,
+      timestamp: new Date().toISOString()
+    });
+
+    return {
+      created,
+      skipped,
+      totalTemplates: templates.length,
+      createdSOPs,
+      skippedSOPs,
+      usingCustomTemplates: customTemplates !== null
+    };
+
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('❌ SOP seeding failed', {
+      companyId,
+      adminId,
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+    throw error;
+  } finally {
+    client.release();
+  }
+}
