@@ -1,4 +1,6 @@
-import { pool } from '../index.js';
+// import { pool } from '../index.js';
+import { pool } from '../config/database.js';
+
 
 // ✅ CRITICAL FIX: Move DEFAULT_SOP_TEMPLATES BEFORE the function
 // This prevents "Cannot access before initialization" ReferenceError
