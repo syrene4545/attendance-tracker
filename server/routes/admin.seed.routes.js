@@ -21,6 +21,7 @@ router.post(
       const dryRun = req.query.dryRun === 'true';
     //   const { templates: customTemplates } = req.body;
       const { templates: customTemplates } = req.body || {};
+      
 
       
       // Validate custom templates if provided
@@ -118,7 +119,8 @@ router.post(
   async (req, res) => {
     try {
       const dryRun = req.query.dryRun === 'true';
-      const { templates: customTemplates } = req.body;
+    //   const { templates: customTemplates } = req.body;
+      const customTemplates = req.body?.templates || null;
       
       console.log('🌱 Starting assessment seeding', {
         companyId: req.companyId,
