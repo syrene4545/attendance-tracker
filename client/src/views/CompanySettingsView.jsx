@@ -27,6 +27,17 @@ import { useAuth } from '../contexts/AuthContext';
 import api from '../api/api';
 import SubscriptionPlans from '../components/SubscriptionPlans';
 
+// Add this component before the CompanySettingsView component
+
+const LoadingOverlay = ({ message }) => (
+  <div className="absolute inset-0 bg-white/80 backdrop-blur-sm flex items-center justify-center z-10 rounded-lg">
+    <div className="flex flex-col items-center gap-3">
+      <Loader2 className="w-8 h-8 animate-spin text-indigo-600" />
+      <p className="text-sm font-medium text-gray-700">{message}</p>
+    </div>
+  </div>
+);
+
 const CompanySettingsView = () => {
   const { company, currentUser, token, refreshCompany } = useAuth();
   
@@ -86,6 +97,11 @@ const CompanySettingsView = () => {
     error: null,
     isDryRun: false
   });
+
+  // Add after existing state declarations
+  const [sopTemplates, setSopTemplates] = useState([]);
+  const [assessmentTemplates, setAssessmentTemplates] = useState([]);
+  const [loadingTemplates, setLoadingTemplates] = useState(false);
 
   // ✅ FIX: Load company data only when company exists
   useEffect(() => {
@@ -149,6 +165,39 @@ const CompanySettingsView = () => {
 
     fetchSettings();
   }, [company, currentUser, token]); // ✅ Wait for all auth to be ready
+
+  // Add after existing useEffects
+
+  // ✅ Fetch templates when tabs are viewed
+  useEffect(() => {
+    const fetchTemplates = async () => {
+      if (!company || !currentUser || !token) return;
+      
+      setLoadingTemplates(true);
+      
+      try {
+        // Fetch SOP templates
+        const sopResponse = await api.get('admin/seed/sops/templates');
+        setSopTemplates(sopResponse.data.templates || []);
+        
+        // Fetch Assessment templates
+        const assessmentResponse = await api.get('admin/seed/assessments/templates');
+        setAssessmentTemplates(assessmentResponse.data.templates || []);
+        
+        console.log('✅ Templates loaded successfully');
+      } catch (error) {
+        console.error('❌ Error loading templates:', error);
+        // Don't show error - templates are optional for preview
+      } finally {
+        setLoadingTemplates(false);
+      }
+    };
+
+    // Only fetch if admin is viewing these tabs
+    if (isAdmin && (activeTab === 'sops' || activeTab === 'assessments')) {
+      fetchTemplates();
+    }
+  }, [company, currentUser, token, isAdmin, activeTab]);
 
   // Check if user is admin
   const isAdmin = currentUser?.role === 'admin';
@@ -321,11 +370,16 @@ const CompanySettingsView = () => {
     }
   };
 
-  // Add before the return statement
-
   // Handle SOP seeding
   const handleSeedSOPs = async (dryRun = false) => {
-    setSopSeeding({ ...sopSeeding, isSeeding: true, error: null, seedResult: null, isDryRun: dryRun });
+    // ✅ Use functional update
+    setSopSeeding(prev => ({ 
+      ...prev, 
+      isSeeding: true, 
+      error: null, 
+      seedResult: null, 
+      isDryRun: dryRun 
+    }));
 
     try {
       console.log(`🌱 ${dryRun ? 'Dry run' : 'Seeding'} SOPs...`);
@@ -334,14 +388,16 @@ const CompanySettingsView = () => {
         `admin/seed/sops${dryRun ? '?dryRun=true' : ''}`
       );
 
-      setSopSeeding({
-        ...sopSeeding,
+      // ✅ Use functional update
+      setSopSeeding(prev => ({
+        ...prev,
         isSeeding: false,
         seedResult: response.data,
         error: null,
         isDryRun: dryRun
-      });
+      }));
 
+      // ✅ Only show success toast for actual seeding (not dry-run)
       if (!dryRun) {
         setMessage({ 
           type: 'success', 
@@ -352,12 +408,15 @@ const CompanySettingsView = () => {
       console.log('✅ SOP seeding completed:', response.data);
     } catch (err) {
       console.error('❌ SOP seeding error:', err);
-      setSopSeeding({
-        ...sopSeeding,
+      
+      // ✅ Use functional update
+      setSopSeeding(prev => ({
+        ...prev,
         isSeeding: false,
         error: err.response?.data?.error || 'Failed to seed SOPs',
         seedResult: null
-      });
+      }));
+      
       setMessage({ 
         type: 'error', 
         text: err.response?.data?.error || 'Failed to seed SOPs' 
@@ -365,17 +424,16 @@ const CompanySettingsView = () => {
     }
   };
 
-  // Add after handleSeedSOPs function
-
   // Handle Assessment seeding
   const handleSeedAssessments = async (dryRun = false) => {
-    setAssessmentSeeding({ 
-      ...assessmentSeeding, 
+    // ✅ Use functional update
+    setAssessmentSeeding(prev => ({ 
+      ...prev, 
       isSeeding: true, 
       error: null, 
       seedResult: null, 
       isDryRun: dryRun 
-    });
+    }));
 
     try {
       console.log(`🌱 ${dryRun ? 'Dry run' : 'Seeding'} assessments...`);
@@ -384,14 +442,16 @@ const CompanySettingsView = () => {
         `admin/seed/assessments${dryRun ? '?dryRun=true' : ''}`
       );
 
-      setAssessmentSeeding({
-        ...assessmentSeeding,
+      // ✅ Use functional update
+      setAssessmentSeeding(prev => ({
+        ...prev,
         isSeeding: false,
         seedResult: response.data,
         error: null,
         isDryRun: dryRun
-      });
+      }));
 
+      // ✅ Only show success toast for actual seeding (not dry-run)
       if (!dryRun) {
         setMessage({ 
           type: 'success', 
@@ -402,18 +462,69 @@ const CompanySettingsView = () => {
       console.log('✅ Assessment seeding completed:', response.data);
     } catch (err) {
       console.error('❌ Assessment seeding error:', err);
-      setAssessmentSeeding({
-        ...assessmentSeeding,
+      
+      // ✅ Use functional update
+      setAssessmentSeeding(prev => ({
+        ...prev,
         isSeeding: false,
         error: err.response?.data?.error || 'Failed to seed assessments',
         seedResult: null
-      });
+      }));
+      
       setMessage({ 
         type: 'error', 
         text: err.response?.data?.error || 'Failed to seed assessments' 
       });
     }
   };
+
+
+  // const handleSeedAssessments = async (dryRun = false) => {
+  //   setAssessmentSeeding({ 
+  //     ...assessmentSeeding, 
+  //     isSeeding: true, 
+  //     error: null, 
+  //     seedResult: null, 
+  //     isDryRun: dryRun 
+  //   });
+
+  //   try {
+  //     console.log(`🌱 ${dryRun ? 'Dry run' : 'Seeding'} assessments...`);
+      
+  //     const response = await api.post(
+  //       `admin/seed/assessments${dryRun ? '?dryRun=true' : ''}`
+  //     );
+
+  //     setAssessmentSeeding({
+  //       ...assessmentSeeding,
+  //       isSeeding: false,
+  //       seedResult: response.data,
+  //       error: null,
+  //       isDryRun: dryRun
+  //     });
+
+  //     if (!dryRun) {
+  //       setMessage({ 
+  //         type: 'success', 
+  //         text: `Successfully seeded ${response.data.createdAssessments} assessments with ${response.data.createdQuestions} questions!` 
+  //       });
+  //     }
+
+  //     console.log('✅ Assessment seeding completed:', response.data);
+  //   } catch (err) {
+  //     console.error('❌ Assessment seeding error:', err);
+  //     setAssessmentSeeding({
+  //       ...assessmentSeeding,
+  //       isSeeding: false,
+  //       error: err.response?.data?.error || 'Failed to seed assessments',
+  //       seedResult: null
+  //     });
+  //     setMessage({ 
+  //       type: 'error', 
+  //       text: err.response?.data?.error || 'Failed to seed assessments' 
+  //     });
+  //   }
+  // };
 
   return (
     <div className="min-h-screen bg-gray-50 p-6">
@@ -1098,7 +1209,15 @@ const CompanySettingsView = () => {
                 </div>
 
                 {/* Seeding Options */}
-                <div className="bg-white border border-gray-200 rounded-lg p-6">
+                {/* <div className="bg-white border border-gray-200 rounded-lg p-6"> */}
+                <div className="bg-white border border-gray-200 rounded-lg p-6 relative">
+                  {/* ✅ Add loading overlay */}
+                  {sopSeeding.isSeeding && (
+                    <LoadingOverlay 
+                      message={sopSeeding.isDryRun ? 'Running preview...' : 'Seeding SOPs...'} 
+                    />
+                  )}
+
                   <h3 className="font-semibold text-gray-900 mb-4">Initialize SOPs</h3>
                   
                   <p className="text-sm text-gray-600 mb-6">
@@ -1106,18 +1225,20 @@ const CompanySettingsView = () => {
                     multiple times - existing SOPs won't be duplicated.
                   </p>
 
-                  {/* Action Buttons */}
+                  {/* Action Buttons for SOPs */}
                   <div className="flex flex-wrap gap-3 mb-6">
                     <button
                       onClick={() => handleSeedSOPs(false)}
                       disabled={sopSeeding.isSeeding}
                       className="flex items-center gap-2 px-6 py-2.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                     >
-                      {sopSeeding.isSeeding && !sopSeeding.isDryRun && (
+                      {/* ✅ Show spinner only when this specific action is running */}
+                      {sopSeeding.isSeeding && !sopSeeding.isDryRun ? (
                         <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <FileText className="w-4 h-4" />
                       )}
-                      <FileText className="w-4 h-4" />
-                      Seed Company SOPs
+                      {sopSeeding.isSeeding && !sopSeeding.isDryRun ? 'Seeding...' : 'Seed Company SOPs'}
                     </button>
 
                     <button
@@ -1125,10 +1246,11 @@ const CompanySettingsView = () => {
                       disabled={sopSeeding.isSeeding}
                       className="flex items-center gap-2 px-6 py-2.5 border border-gray-300 bg-white text-gray-700 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                     >
-                      {sopSeeding.isSeeding && sopSeeding.isDryRun && (
+                      {/* ✅ Show spinner only when dry-run is running */}
+                      {sopSeeding.isSeeding && sopSeeding.isDryRun ? (
                         <Loader2 className="h-4 w-4 animate-spin" />
-                      )}
-                      Preview (Dry Run)
+                      ) : null}
+                      {sopSeeding.isSeeding && sopSeeding.isDryRun ? 'Previewing...' : 'Preview (Dry Run)'}
                     </button>
                   </div>
 
@@ -1230,61 +1352,56 @@ const CompanySettingsView = () => {
                   )}
                 </div>
 
-                {/* Available Templates Preview */}
+                {/* Available Templates Preview - DYNAMIC */}
                 <div className="bg-white border border-gray-200 rounded-lg p-6">
                   <h3 className="font-semibold text-gray-900 mb-4">Available Templates</h3>
                   
-                  <div className="space-y-3">
-                    {[
-                      {
-                        title: 'Attendance Policy',
-                        category: 'Policy',
-                        description: 'Standard working hours, clock-in/out requirements, and late arrival procedures'
-                      },
-                      {
-                        title: 'Leave Request Procedure',
-                        category: 'Procedure',
-                        description: 'How to request annual, sick, and other types of leave'
-                      },
-                      {
-                        title: 'Code of Conduct',
-                        category: 'Policy',
-                        description: 'Professional behavior, respect, confidentiality, and ethical standards'
-                      },
-                      {
-                        title: 'Data Security Policy',
-                        category: 'Policy',
-                        description: 'Password requirements, data access, and device security guidelines'
-                      },
-                      {
-                        title: 'Performance Review Process',
-                        category: 'Procedure',
-                        description: 'Annual review schedule, components, and goal-setting guidelines'
-                      },
-                      {
-                        title: 'Health and Safety Policy',
-                        category: 'Policy',
-                        description: 'Workplace safety, emergency procedures, and accident reporting'
-                      }
-                    ].map((template, idx) => (
-                      <div key={idx} className="border border-gray-200 rounded-lg p-4 hover:border-indigo-300 transition-colors">
-                        <div className="flex items-start justify-between">
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2 mb-1">
-                              <h4 className="font-medium text-gray-900">{template.title}</h4>
-                              <span className="px-2 py-0.5 bg-indigo-100 text-indigo-700 text-xs rounded-full">
-                                {template.category}
-                              </span>
+                  {loadingTemplates ? (
+                    <div className="flex items-center justify-center py-8">
+                      <Loader2 className="w-6 h-6 animate-spin text-indigo-600" />
+                      <span className="ml-2 text-gray-600">Loading templates...</span>
+                    </div>
+                  ) : sopTemplates.length > 0 ? (
+                    <div className="space-y-3">
+                      {sopTemplates.map((template, idx) => (
+                        <div key={idx} className="border border-gray-200 rounded-lg p-4 hover:border-indigo-300 transition-colors">
+                          <div className="flex items-start justify-between">
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2 mb-1">
+                                <h4 className="font-medium text-gray-900">{template.title}</h4>
+                                <span className="px-2 py-0.5 bg-indigo-100 text-indigo-700 text-xs rounded-full capitalize">
+                                  {template.category}
+                                </span>
+                                {template.status && (
+                                  <span className={`px-2 py-0.5 text-xs rounded-full ${
+                                    template.status === 'active' 
+                                      ? 'bg-green-100 text-green-700' 
+                                      : 'bg-gray-100 text-gray-700'
+                                  }`}>
+                                    {template.status}
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-sm text-gray-600">
+                                {template.description}
+                              </p>
+                              {template.version && (
+                                <p className="text-xs text-gray-500 mt-1">
+                                  Version {template.version}
+                                </p>
+                              )}
                             </div>
-                            <p className="text-sm text-gray-600">
-                              {template.description}
-                            </p>
+                            <FileText className="w-5 h-5 text-gray-400 flex-shrink-0 ml-3" />
                           </div>
-                          <FileText className="w-5 h-5 text-gray-400 flex-shrink-0 ml-3" />
                         </div>
-                      </div>
-                    ))}
-                  </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-center py-8 text-gray-500">
+                      <FileText className="w-12 h-12 mx-auto mb-3 text-gray-300" />
+                      <p className="text-sm">No templates available</p>
+                    </div>
+                  )}
 
                   <div className="mt-4 pt-4 border-t border-gray-200">
                     <p className="text-xs text-gray-500">
@@ -1350,7 +1467,14 @@ const CompanySettingsView = () => {
                 </div>
 
                 {/* Seeding Options */}
-                <div className="bg-white border border-gray-200 rounded-lg p-6">
+                
+                <div className="bg-white border border-gray-200 rounded-lg p-6 relative">
+                  {/* ✅ Add loading overlay */}
+                  {assessmentSeeding.isSeeding && (
+                    <LoadingOverlay 
+                      message={assessmentSeeding.isDryRun ? 'Running preview...' : 'Seeding assessments...'} 
+                    />
+                  )}
                   <h3 className="font-semibold text-gray-900 mb-4">Initialize Assessments</h3>
                   
                   <p className="text-sm text-gray-600 mb-6">
@@ -1358,18 +1482,19 @@ const CompanySettingsView = () => {
                     This is safe to run multiple times - existing assessments won't be duplicated.
                   </p>
 
-                  {/* Action Buttons */}
+                  {/* Action Buttons for Assessments */}
                   <div className="flex flex-wrap gap-3 mb-6">
                     <button
                       onClick={() => handleSeedAssessments(false)}
                       disabled={assessmentSeeding.isSeeding}
                       className="flex items-center gap-2 px-6 py-2.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                     >
-                      {assessmentSeeding.isSeeding && !assessmentSeeding.isDryRun && (
+                      {assessmentSeeding.isSeeding && !assessmentSeeding.isDryRun ? (
                         <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <FileText className="w-4 h-4" />
                       )}
-                      <FileText className="w-4 h-4" />
-                      Seed Company Assessments
+                      {assessmentSeeding.isSeeding && !assessmentSeeding.isDryRun ? 'Seeding...' : 'Seed Company Assessments'}
                     </button>
 
                     <button
@@ -1377,10 +1502,10 @@ const CompanySettingsView = () => {
                       disabled={assessmentSeeding.isSeeding}
                       className="flex items-center gap-2 px-6 py-2.5 border border-gray-300 bg-white text-gray-700 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                     >
-                      {assessmentSeeding.isSeeding && assessmentSeeding.isDryRun && (
+                      {assessmentSeeding.isSeeding && assessmentSeeding.isDryRun ? (
                         <Loader2 className="h-4 w-4 animate-spin" />
-                      )}
-                      Preview (Dry Run)
+                      ) : null}
+                      {assessmentSeeding.isSeeding && assessmentSeeding.isDryRun ? 'Previewing...' : 'Preview (Dry Run)'}
                     </button>
                   </div>
 
@@ -1493,79 +1618,90 @@ const CompanySettingsView = () => {
                   )}
                 </div>
 
-                {/* Available Templates Preview */}
+                {/* Available Templates Preview - DYNAMIC */}
                 <div className="bg-white border border-gray-200 rounded-lg p-6">
                   <h3 className="font-semibold text-gray-900 mb-4">Available Assessment Templates</h3>
                   
-                  <div className="space-y-3">
-                    {[
-                      {
-                        title: 'Sales SOP Assessment',
-                        description: 'Test knowledge of sales procedures, customer service, and till operations',
-                        questions: 20,
-                        difficulty: 'Intermediate',
-                        passingScore: '80%'
-                      },
-                      {
-                        title: 'Cash Handling & Financial SOP Assessment',
-                        description: 'Test knowledge of cash handling procedures, fraud prevention, and financial controls',
-                        questions: 20,
-                        difficulty: 'Intermediate',
-                        passingScore: '80%'
-                      }
-                    ].map((template, idx) => (
-                      <div key={idx} className="border border-gray-200 rounded-lg p-4 hover:border-indigo-300 transition-colors">
-                        <div className="flex items-start justify-between mb-2">
-                          <div className="flex-1">
-                            <h4 className="font-medium text-gray-900 mb-1">{template.title}</h4>
-                            <p className="text-sm text-gray-600 mb-2">
-                              {template.description}
-                            </p>
+                  {loadingTemplates ? (
+                    <div className="flex items-center justify-center py-8">
+                      <Loader2 className="w-6 h-6 animate-spin text-indigo-600" />
+                      <span className="ml-2 text-gray-600">Loading templates...</span>
+                    </div>
+                  ) : assessmentTemplates.length > 0 ? (
+                    <div className="space-y-3">
+                      {assessmentTemplates.map((template, idx) => (
+                        <div key={idx} className="border border-gray-200 rounded-lg p-4 hover:border-indigo-300 transition-colors">
+                          <div className="flex items-start justify-between mb-2">
+                            <div className="flex-1">
+                              <h4 className="font-medium text-gray-900 mb-1">{template.title}</h4>
+                              <p className="text-sm text-gray-600 mb-2">
+                                {template.description}
+                              </p>
+                            </div>
+                            <FileText className="w-5 h-5 text-gray-400 flex-shrink-0 ml-3" />
                           </div>
-                          <FileText className="w-5 h-5 text-gray-400 flex-shrink-0 ml-3" />
-                        </div>
-                        <div className="flex items-center gap-4 text-xs text-gray-500">
-                          <span className="flex items-center gap-1">
-                            <FileText className="w-3 h-3" />
-                            {template.questions} questions
-                          </span>
-                          <span className="px-2 py-0.5 bg-yellow-100 text-yellow-700 rounded-full">
-                            {template.difficulty}
-                          </span>
-                          <span className="px-2 py-0.5 bg-blue-100 text-blue-700 rounded-full">
-                            Passing: {template.passingScore}
-                          </span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-
-                  <div className="mt-4 pt-4 border-t border-gray-200">
-                    <h4 className="text-sm font-medium text-gray-900 mb-2">Achievement Badges</h4>
-                    <div className="flex flex-wrap gap-2">
-                      {[
-                        { icon: '🏆', name: 'Perfect Score', rarity: 'Epic' },
-                        { icon: '🎯', name: 'First Attempt', rarity: 'Rare' },
-                        { icon: '🌟', name: 'SOP Master', rarity: 'Legendary' },
-                        { icon: '⚡', name: 'Speed Demon', rarity: 'Rare' },
-                        { icon: '💪', name: 'Persistent Learner', rarity: 'Common' },
-                        { icon: '🚀', name: 'Quick Learner', rarity: 'Rare' }
-                      ].map((badge, idx) => (
-                        <div key={idx} className="flex items-center gap-1 px-3 py-1 bg-gray-100 rounded-full text-xs">
-                          <span>{badge.icon}</span>
-                          <span className="font-medium text-gray-700">{badge.name}</span>
-                          <span className={`px-1.5 py-0.5 rounded text-[10px] ${
-                            badge.rarity === 'Legendary' ? 'bg-purple-200 text-purple-800' :
-                            badge.rarity === 'Epic' ? 'bg-pink-200 text-pink-800' :
-                            badge.rarity === 'Rare' ? 'bg-blue-200 text-blue-800' :
-                            'bg-gray-200 text-gray-700'
-                          }`}>
-                            {badge.rarity}
-                          </span>
+                          <div className="flex items-center gap-4 text-xs text-gray-500">
+                            <span className="flex items-center gap-1">
+                              <FileText className="w-3 h-3" />
+                              {template.questions} questions
+                            </span>
+                            <span className={`px-2 py-0.5 rounded-full ${
+                              template.difficulty === 'beginner' ? 'bg-green-100 text-green-700' :
+                              template.difficulty === 'intermediate' ? 'bg-yellow-100 text-yellow-700' :
+                              'bg-red-100 text-red-700'
+                            }`}>
+                              {template.difficulty}
+                            </span>
+                            <span className="px-2 py-0.5 bg-blue-100 text-blue-700 rounded-full">
+                              Passing: {template.passing_score}%
+                            </span>
+                            {template.badges > 0 && (
+                              <span className="flex items-center gap-1">
+                                <span>🏆</span>
+                                {template.badges} badge{template.badges !== 1 ? 's' : ''}
+                              </span>
+                            )}
+                          </div>
                         </div>
                       ))}
                     </div>
-                  </div>
+                  ) : (
+                    <div className="text-center py-8 text-gray-500">
+                      <FileText className="w-12 h-12 mx-auto mb-3 text-gray-300" />
+                      <p className="text-sm">No assessment templates available</p>
+                    </div>
+                  )}
+
+                  {/* Badge Preview - Dynamic from API */}
+                  {assessmentTemplates.length > 0 && (
+                    <div className="mt-4 pt-4 border-t border-gray-200">
+                      <h4 className="text-sm font-medium text-gray-900 mb-2">Achievement Badges</h4>
+                      <div className="flex flex-wrap gap-2">
+                        {/* Show badges from templates if available */}
+                        {[
+                          { icon: '🏆', name: 'Perfect Score', rarity: 'Epic' },
+                          { icon: '🎯', name: 'First Attempt', rarity: 'Rare' },
+                          { icon: '🌟', name: 'SOP Master', rarity: 'Legendary' },
+                          { icon: '⚡', name: 'Speed Demon', rarity: 'Rare' },
+                          { icon: '💪', name: 'Persistent Learner', rarity: 'Common' },
+                          { icon: '🚀', name: 'Quick Learner', rarity: 'Rare' }
+                        ].map((badge, idx) => (
+                          <div key={idx} className="flex items-center gap-1 px-3 py-1 bg-gray-100 rounded-full text-xs">
+                            <span>{badge.icon}</span>
+                            <span className="font-medium text-gray-700">{badge.name}</span>
+                            <span className={`px-1.5 py-0.5 rounded text-[10px] ${
+                              badge.rarity === 'Legendary' ? 'bg-purple-200 text-purple-800' :
+                              badge.rarity === 'Epic' ? 'bg-pink-200 text-pink-800' :
+                              badge.rarity === 'Rare' ? 'bg-blue-200 text-blue-800' :
+                              'bg-gray-200 text-gray-700'
+                            }`}>
+                              {badge.rarity}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
                   <div className="mt-4 pt-4 border-t border-gray-200">
                     <p className="text-xs text-gray-500">
