@@ -40,6 +40,9 @@ const LoadingOverlay = ({ message }) => (
 
 const CompanySettingsView = () => {
   const { company, currentUser, token, refreshCompany } = useAuth();
+
+  // Check if user is admin
+  const isAdmin = currentUser?.role === 'admin';
   
   const [activeTab, setActiveTab] = useState('general');
   const [loading, setLoading] = useState(false);
@@ -198,9 +201,6 @@ const CompanySettingsView = () => {
       fetchTemplates();
     }
   }, [company, currentUser, token, isAdmin, activeTab]);
-
-  // Check if user is admin
-  const isAdmin = currentUser?.role === 'admin';
 
   if (!isAdmin) {
     return (
@@ -477,54 +477,6 @@ const CompanySettingsView = () => {
       });
     }
   };
-
-
-  // const handleSeedAssessments = async (dryRun = false) => {
-  //   setAssessmentSeeding({ 
-  //     ...assessmentSeeding, 
-  //     isSeeding: true, 
-  //     error: null, 
-  //     seedResult: null, 
-  //     isDryRun: dryRun 
-  //   });
-
-  //   try {
-  //     console.log(`🌱 ${dryRun ? 'Dry run' : 'Seeding'} assessments...`);
-      
-  //     const response = await api.post(
-  //       `admin/seed/assessments${dryRun ? '?dryRun=true' : ''}`
-  //     );
-
-  //     setAssessmentSeeding({
-  //       ...assessmentSeeding,
-  //       isSeeding: false,
-  //       seedResult: response.data,
-  //       error: null,
-  //       isDryRun: dryRun
-  //     });
-
-  //     if (!dryRun) {
-  //       setMessage({ 
-  //         type: 'success', 
-  //         text: `Successfully seeded ${response.data.createdAssessments} assessments with ${response.data.createdQuestions} questions!` 
-  //       });
-  //     }
-
-  //     console.log('✅ Assessment seeding completed:', response.data);
-  //   } catch (err) {
-  //     console.error('❌ Assessment seeding error:', err);
-  //     setAssessmentSeeding({
-  //       ...assessmentSeeding,
-  //       isSeeding: false,
-  //       error: err.response?.data?.error || 'Failed to seed assessments',
-  //       seedResult: null
-  //     });
-  //     setMessage({ 
-  //       type: 'error', 
-  //       text: err.response?.data?.error || 'Failed to seed assessments' 
-  //     });
-  //   }
-  // };
 
   return (
     <div className="min-h-screen bg-gray-50 p-6">
