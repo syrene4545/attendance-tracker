@@ -1,5 +1,11 @@
 import { pool } from '../index.js';
 
+// ✅ HELPER: Safe JSON conversion for JSONB columns
+function toJson(value, fallback = null) {
+  if (value === undefined || value === null) return fallback;
+  return JSON.stringify(value);
+}
+
 // ✅ CRITICAL: Define templates BEFORE the function to avoid const hoisting issues
 export const DEFAULT_ASSESSMENT_TEMPLATES = [
   {
@@ -333,7 +339,7 @@ export async function seedCompanyAssessments({
       createdAssessments++;
       createdList.push(template.title);
 
-      // Insert questions
+      // ✅ FIXED: Insert questions with proper JSONB conversion
       for (const question of template.questions) {
         await client.query(
           `INSERT INTO assessment_questions (
@@ -356,8 +362,8 @@ export async function seedCompanyAssessments({
             question.question_id,
             question.question_type,
             question.question_text,
-            question.options,
-            question.correct_answer,
+            toJson(question.options, []),                    // ✅ FIXED: Proper JSONB
+            toJson([question.correct_answer], []),           // ✅ FIXED: Array for future multi-answer support
             question.explanation,
             question.points || 1,
             question.category,
@@ -369,15 +375,13 @@ export async function seedCompanyAssessments({
 
       console.log(`  📝 Created ${template.questions.length} questions`);
 
-      // Insert assessment-specific badges
-
+      // ✅ FIXED: Insert assessment-specific badges with proper JSONB
       if (template.badges && template.badges.length > 0) {
         for (const badge of template.badges) {
-          // ✅ FIX: Check using key instead of name
           const badgeExists = await client.query(
             `SELECT id FROM badges 
-            WHERE company_id = $1 
-              AND badge_key = $2`,  // ✅ CHANGED to badge_key
+             WHERE company_id = $1 
+               AND badge_key = $2`,
             [companyId, badge.key]
           );
 
@@ -385,7 +389,7 @@ export async function seedCompanyAssessments({
             await client.query(
               `INSERT INTO badges (
                 company_id,
-                badge_key,  -- ✅ ADD badge_key
+                badge_key,
                 name,
                 description,
                 icon,
@@ -398,13 +402,13 @@ export async function seedCompanyAssessments({
               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
               [
                 companyId,
-                badge.key,        // ✅ ADD key
+                badge.key,
                 badge.name,
                 badge.description,
                 badge.icon,
                 badge.badge_type,
                 badge.criteria_type,
-                badge.criteria_value,
+                toJson(badge.criteria_value, {}),  // ✅ FIXED: Consistent JSONB conversion
                 badge.rarity,
                 badge.points
               ]
@@ -419,14 +423,12 @@ export async function seedCompanyAssessments({
       }  
     }
 
-    // ✅ Seed Global Badges
-
+    // ✅ FIXED: Seed Global Badges with consistent JSONB conversion
     for (const badge of GLOBAL_BADGES) {
-      // ✅ FIX: Check using key instead of name
       const badgeExists = await client.query(
         `SELECT id FROM badges 
-        WHERE company_id = $1 
-          AND badge_key = $2`,  // ✅ CHANGED to badge_key
+         WHERE company_id = $1 
+           AND badge_key = $2`,
         [companyId, badge.key]
       );
 
@@ -434,7 +436,7 @@ export async function seedCompanyAssessments({
         await client.query(
           `INSERT INTO badges (
             company_id,
-            badge_key,  -- ✅ ADD badge_key
+            badge_key,
             name,
             description,
             icon,
@@ -447,13 +449,13 @@ export async function seedCompanyAssessments({
           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
           [
             companyId,
-            badge.key,        // ✅ ADD key
+            badge.key,
             badge.name,
             badge.description,
             badge.icon,
             badge.badge_type,
             badge.criteria_type,
-            JSON.stringify(badge.criteria_value),
+            toJson(badge.criteria_value, {}),  // ✅ FIXED: Consistent JSONB conversion
             badge.rarity,
             badge.points
           ]
