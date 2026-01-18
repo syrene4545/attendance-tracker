@@ -113,19 +113,103 @@ router.get(
 // ==================== ASSESSMENT SEEDING ====================
 
 // ✅ NEW: Seed assessments for current company (admin only)
+
+// ✅ ENHANCED: Seed assessments with validation
 router.post(
   '/seed/assessments',
   checkPermission('manage_company'),
   async (req, res) => {
     try {
       const dryRun = req.query.dryRun === 'true';
-    //   const { templates: customTemplates } = req.body;
       const customTemplates = req.body?.templates || null;
+      
+      // ✅ ADDED: Validate custom templates
+      if (customTemplates) {
+        if (!Array.isArray(customTemplates)) {
+          return res.status(400).json({ 
+            error: 'Custom templates must be an array' 
+          });
+        }
+        
+        // Validate each template
+        for (const template of customTemplates) {
+          // Required fields
+          if (!template.key) {
+            return res.status(400).json({ 
+              error: 'Each template must have a unique key',
+              invalidTemplate: template
+            });
+          }
+          
+          if (!template.title) {
+            return res.status(400).json({ 
+              error: 'Each template must have a title',
+              invalidTemplate: template
+            });
+          }
+          
+          if (!template.questions || !Array.isArray(template.questions)) {
+            return res.status(400).json({ 
+              error: 'Each template must have a questions array',
+              invalidTemplate: template
+            });
+          }
+          
+          if (template.questions.length === 0) {
+            return res.status(400).json({ 
+              error: 'Each template must have at least one question',
+              invalidTemplate: template
+            });
+          }
+          
+          if (typeof template.passing_score !== 'number' || 
+              template.passing_score < 0 || 
+              template.passing_score > 100) {
+            return res.status(400).json({ 
+              error: 'passing_score must be a number between 0 and 100',
+              invalidTemplate: template
+            });
+          }
+          
+          // Validate questions
+          for (const question of template.questions) {
+            if (!question.question_text) {
+              return res.status(400).json({ 
+                error: 'Each question must have question_text',
+                invalidQuestion: question
+              });
+            }
+            
+            if (!question.question_type || 
+                !['multiple-choice', 'true-false', 'scenario'].includes(question.question_type)) {
+              return res.status(400).json({ 
+                error: 'question_type must be: multiple-choice, true-false, or scenario',
+                invalidQuestion: question
+              });
+            }
+            
+            if (!question.options || !Array.isArray(question.options)) {
+              return res.status(400).json({ 
+                error: 'Each question must have an options array',
+                invalidQuestion: question
+              });
+            }
+            
+            if (!question.correct_answer) {
+              return res.status(400).json({ 
+                error: 'Each question must have a correct_answer',
+                invalidQuestion: question
+              });
+            }
+          }
+        }
+      }
       
       console.log('🌱 Starting assessment seeding', {
         companyId: req.companyId,
         adminId: req.user.id,
         dryRun,
+        hasBody: !!req.body,
         customTemplates: customTemplates ? customTemplates.length : 0,
         timestamp: new Date().toISOString()
       });

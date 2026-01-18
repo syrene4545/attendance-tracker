@@ -193,8 +193,8 @@ export const GLOBAL_BADGES = [
     points: 100
   },
   {
-    key: 'speed-demon',
-    name: 'Speed Demon',
+    key: 'speed-master',
+    name: 'Speed Master',
     description: 'Completed assessment in under 5 minutes',
     icon: '⚡',
     badge_type: 'achievement',
@@ -286,7 +286,7 @@ export async function seedCompanyAssessments({
       // Check if assessment already exists
       const existing = await client.query(
         `SELECT id FROM assessments
-         WHERE company_id = $1 AND sop_id = $2`,
+         WHERE company_id = $1 AND assessment_key = $2`,
         [companyId, template.key]
       );
 
@@ -304,7 +304,7 @@ export async function seedCompanyAssessments({
       const assessmentResult = await client.query(
         `INSERT INTO assessments (
           company_id,
-          sop_id,
+          assessment_key,
           title,
           description,
           passing_score,
@@ -356,8 +356,8 @@ export async function seedCompanyAssessments({
             question.question_id,
             question.question_type,
             question.question_text,
-            JSON.stringify(question.options),
-            JSON.stringify(question.correct_answer),
+            question.options,
+            question.correct_answer,
             question.explanation,
             question.points || 1,
             question.category,
@@ -370,17 +370,22 @@ export async function seedCompanyAssessments({
       console.log(`  📝 Created ${template.questions.length} questions`);
 
       // Insert assessment-specific badges
+
       if (template.badges && template.badges.length > 0) {
         for (const badge of template.badges) {
+          // ✅ FIX: Check using key instead of name
           const badgeExists = await client.query(
-            `SELECT id FROM badges WHERE company_id = $1 AND name = $2`,
-            [companyId, badge.name]
+            `SELECT id FROM badges 
+            WHERE company_id = $1 
+              AND badge_key = $2`,  // ✅ CHANGED to badge_key
+            [companyId, badge.key]
           );
 
           if (badgeExists.rows.length === 0) {
             await client.query(
               `INSERT INTO badges (
                 company_id,
+                badge_key,  -- ✅ ADD badge_key
                 name,
                 description,
                 icon,
@@ -390,15 +395,16 @@ export async function seedCompanyAssessments({
                 rarity,
                 points
               )
-              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
               [
                 companyId,
+                badge.key,        // ✅ ADD key
                 badge.name,
                 badge.description,
                 badge.icon,
                 badge.badge_type,
                 badge.criteria_type,
-                JSON.stringify(badge.criteria_value),
+                badge.criteria_value,
                 badge.rarity,
                 badge.points
               ]
@@ -407,22 +413,28 @@ export async function seedCompanyAssessments({
             console.log(`  ${badge.icon} Created badge: ${badge.name}`);
           } else {
             skippedBadges++;
+            console.log(`  ⏭️  Skipping existing badge: ${badge.name}`);
           }
         }
-      }
+      }  
     }
 
     // ✅ Seed Global Badges
+
     for (const badge of GLOBAL_BADGES) {
+      // ✅ FIX: Check using key instead of name
       const badgeExists = await client.query(
-        `SELECT id FROM badges WHERE company_id = $1 AND name = $2`,
-        [companyId, badge.name]
+        `SELECT id FROM badges 
+        WHERE company_id = $1 
+          AND badge_key = $2`,  // ✅ CHANGED to badge_key
+        [companyId, badge.key]
       );
 
       if (badgeExists.rows.length === 0) {
         await client.query(
           `INSERT INTO badges (
             company_id,
+            badge_key,  -- ✅ ADD badge_key
             name,
             description,
             icon,
@@ -432,9 +444,10 @@ export async function seedCompanyAssessments({
             rarity,
             points
           )
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
           [
             companyId,
+            badge.key,        // ✅ ADD key
             badge.name,
             badge.description,
             badge.icon,
@@ -449,6 +462,7 @@ export async function seedCompanyAssessments({
         console.log(`${badge.icon} Created global badge: ${badge.name}`);
       } else {
         skippedBadges++;
+        console.log(`⏭️  Skipping existing badge: ${badge.name}`);
       }
     }
 
