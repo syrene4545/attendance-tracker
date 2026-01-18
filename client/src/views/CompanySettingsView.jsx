@@ -79,6 +79,14 @@ const CompanySettingsView = () => {
     isDryRun: false
   });
 
+  // Add after sopSeeding state
+  const [assessmentSeeding, setAssessmentSeeding] = useState({
+    isSeeding: false,
+    seedResult: null,
+    error: null,
+    isDryRun: false
+  });
+
   // ✅ FIX: Load company data only when company exists
   useEffect(() => {
     if (company) {
@@ -357,6 +365,56 @@ const CompanySettingsView = () => {
     }
   };
 
+  // Add after handleSeedSOPs function
+
+  // Handle Assessment seeding
+  const handleSeedAssessments = async (dryRun = false) => {
+    setAssessmentSeeding({ 
+      ...assessmentSeeding, 
+      isSeeding: true, 
+      error: null, 
+      seedResult: null, 
+      isDryRun: dryRun 
+    });
+
+    try {
+      console.log(`🌱 ${dryRun ? 'Dry run' : 'Seeding'} assessments...`);
+      
+      const response = await api.post(
+        `admin/seed/assessments${dryRun ? '?dryRun=true' : ''}`
+      );
+
+      setAssessmentSeeding({
+        ...assessmentSeeding,
+        isSeeding: false,
+        seedResult: response.data,
+        error: null,
+        isDryRun: dryRun
+      });
+
+      if (!dryRun) {
+        setMessage({ 
+          type: 'success', 
+          text: `Successfully seeded ${response.data.createdAssessments} assessments with ${response.data.createdQuestions} questions!` 
+        });
+      }
+
+      console.log('✅ Assessment seeding completed:', response.data);
+    } catch (err) {
+      console.error('❌ Assessment seeding error:', err);
+      setAssessmentSeeding({
+        ...assessmentSeeding,
+        isSeeding: false,
+        error: err.response?.data?.error || 'Failed to seed assessments',
+        seedResult: null
+      });
+      setMessage({ 
+        type: 'error', 
+        text: err.response?.data?.error || 'Failed to seed assessments' 
+      });
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 p-6">
       <div className="max-w-6xl mx-auto">
@@ -455,6 +513,21 @@ const CompanySettingsView = () => {
                 <div className="flex items-center gap-2">
                   <BookOpen className="w-4 h-4" />
                   SOPs
+                </div>
+              </button>
+
+              {/* Add this tab after the SOPs tab */}
+              <button
+                onClick={() => setActiveTab('assessments')}
+                className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
+                  activeTab === 'assessments'
+                    ? 'border-indigo-600 text-indigo-600'
+                    : 'border-transparent text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <FileText className="w-4 h-4" />
+                  Assessments
                 </div>
               </button>
 
@@ -1232,6 +1305,287 @@ const CompanySettingsView = () => {
                       <p className="text-sm text-gray-600 mb-2">
                         Want to add industry-specific policies or custom procedures? Contact our support 
                         team for assistance with creating tailored SOPs for your organization.
+                      </p>
+                      <a 
+                        href="mailto:support@yourapp.com"
+                        className="text-sm font-medium text-indigo-600 hover:text-indigo-700"
+                      >
+                        Contact Support →
+                      </a>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Assessments Management Tab */}
+            {activeTab === 'assessments' && (
+              <div className="space-y-6">
+                {/* Header */}
+                <div>
+                  <h2 className="text-lg font-semibold text-gray-900 mb-2">
+                    Assessment & Certification System
+                  </h2>
+                  <p className="text-sm text-gray-600">
+                    Initialize your company with SOP assessments, quizzes, and achievement badges. 
+                    Employees can take assessments, earn certifications, and unlock badges.
+                  </p>
+                </div>
+
+                {/* Info Card */}
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                  <div className="flex items-start gap-3">
+                    <FileText className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <h4 className="font-medium text-blue-900 mb-1">
+                        What are Assessments?
+                      </h4>
+                      <p className="text-sm text-blue-800">
+                        Assessments test employee knowledge of company SOPs and procedures. Employees 
+                        must pass assessments to earn certifications and can unlock achievement badges 
+                        based on their performance.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Seeding Options */}
+                <div className="bg-white border border-gray-200 rounded-lg p-6">
+                  <h3 className="font-semibold text-gray-900 mb-4">Initialize Assessments</h3>
+                  
+                  <p className="text-sm text-gray-600 mb-6">
+                    Click below to seed your company with assessment templates, questions, and badges. 
+                    This is safe to run multiple times - existing assessments won't be duplicated.
+                  </p>
+
+                  {/* Action Buttons */}
+                  <div className="flex flex-wrap gap-3 mb-6">
+                    <button
+                      onClick={() => handleSeedAssessments(false)}
+                      disabled={assessmentSeeding.isSeeding}
+                      className="flex items-center gap-2 px-6 py-2.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    >
+                      {assessmentSeeding.isSeeding && !assessmentSeeding.isDryRun && (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      )}
+                      <FileText className="w-4 h-4" />
+                      Seed Company Assessments
+                    </button>
+
+                    <button
+                      onClick={() => handleSeedAssessments(true)}
+                      disabled={assessmentSeeding.isSeeding}
+                      className="flex items-center gap-2 px-6 py-2.5 border border-gray-300 bg-white text-gray-700 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    >
+                      {assessmentSeeding.isSeeding && assessmentSeeding.isDryRun && (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      )}
+                      Preview (Dry Run)
+                    </button>
+                  </div>
+
+                  {/* Success Result */}
+                  {assessmentSeeding.seedResult && !assessmentSeeding.error && (
+                    <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                      <div className="flex items-start gap-3">
+                        <CheckCircle className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
+                        <div className="flex-1">
+                          <h4 className="font-medium text-green-900 mb-2">
+                            {assessmentSeeding.seedResult.message}
+                          </h4>
+                          
+                          <div className="space-y-3">
+                            {/* Stats Grid */}
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                              <div className="bg-green-100 rounded-lg p-3">
+                                <div className="text-xs text-green-700 mb-1">Assessments Created</div>
+                                <div className="text-2xl font-bold text-green-900">
+                                  {assessmentSeeding.seedResult.createdAssessments || 0}
+                                </div>
+                              </div>
+                              
+                              <div className="bg-green-100 rounded-lg p-3">
+                                <div className="text-xs text-green-700 mb-1">Questions Created</div>
+                                <div className="text-2xl font-bold text-green-900">
+                                  {assessmentSeeding.seedResult.createdQuestions || 0}
+                                </div>
+                              </div>
+
+                              <div className="bg-green-100 rounded-lg p-3">
+                                <div className="text-xs text-green-700 mb-1">Badges Created</div>
+                                <div className="text-2xl font-bold text-green-900">
+                                  {assessmentSeeding.seedResult.createdBadges || 0}
+                                </div>
+                              </div>
+
+                              <div className="bg-green-100 rounded-lg p-3">
+                                <div className="text-xs text-green-700 mb-1">Skipped</div>
+                                <div className="text-2xl font-bold text-green-900">
+                                  {assessmentSeeding.seedResult.skippedAssessments || 0}
+                                </div>
+                              </div>
+                            </div>
+
+                            {assessmentSeeding.isDryRun && (
+                              <div className="pt-3 border-t border-green-300">
+                                <div className="text-xs font-medium text-green-900 mb-1">
+                                  ℹ️ This was a preview - no changes were made
+                                </div>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Show created assessments */}
+                          {assessmentSeeding.seedResult.createdList && 
+                          assessmentSeeding.seedResult.createdList.length > 0 && (
+                            <div className="mt-4 pt-4 border-t border-green-300">
+                              <div className="text-sm font-medium text-green-900 mb-2">
+                                {assessmentSeeding.isDryRun ? 'Would Create:' : 'Created Assessments:'}
+                              </div>
+                              <ul className="space-y-1">
+                                {assessmentSeeding.seedResult.createdList.map((assessment, idx) => (
+                                  <li key={idx} className="flex items-center gap-2 text-sm text-green-800">
+                                    <Check className="w-3 h-3 text-green-600" />
+                                    {assessment}
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+
+                          {/* Show skipped assessments */}
+                          {assessmentSeeding.seedResult.skippedList && 
+                          assessmentSeeding.seedResult.skippedList.length > 0 && (
+                            <div className="mt-4 pt-4 border-t border-green-300">
+                              <div className="text-sm font-medium text-green-900 mb-2">
+                                Already Exists:
+                              </div>
+                              <ul className="space-y-1">
+                                {assessmentSeeding.seedResult.skippedList.map((assessment, idx) => (
+                                  <li key={idx} className="flex items-center gap-2 text-sm text-green-800">
+                                    <CheckCircle className="w-3 h-3 text-green-600" />
+                                    {assessment}
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Error */}
+                  {assessmentSeeding.error && (
+                    <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                      <div className="flex items-start gap-3">
+                        <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+                        <div className="flex-1">
+                          <h4 className="font-medium text-red-900 mb-1">
+                            Seeding Failed
+                          </h4>
+                          <p className="text-sm text-red-800">
+                            {assessmentSeeding.error}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Available Templates Preview */}
+                <div className="bg-white border border-gray-200 rounded-lg p-6">
+                  <h3 className="font-semibold text-gray-900 mb-4">Available Assessment Templates</h3>
+                  
+                  <div className="space-y-3">
+                    {[
+                      {
+                        title: 'Sales SOP Assessment',
+                        description: 'Test knowledge of sales procedures, customer service, and till operations',
+                        questions: 20,
+                        difficulty: 'Intermediate',
+                        passingScore: '80%'
+                      },
+                      {
+                        title: 'Cash Handling & Financial SOP Assessment',
+                        description: 'Test knowledge of cash handling procedures, fraud prevention, and financial controls',
+                        questions: 20,
+                        difficulty: 'Intermediate',
+                        passingScore: '80%'
+                      }
+                    ].map((template, idx) => (
+                      <div key={idx} className="border border-gray-200 rounded-lg p-4 hover:border-indigo-300 transition-colors">
+                        <div className="flex items-start justify-between mb-2">
+                          <div className="flex-1">
+                            <h4 className="font-medium text-gray-900 mb-1">{template.title}</h4>
+                            <p className="text-sm text-gray-600 mb-2">
+                              {template.description}
+                            </p>
+                          </div>
+                          <FileText className="w-5 h-5 text-gray-400 flex-shrink-0 ml-3" />
+                        </div>
+                        <div className="flex items-center gap-4 text-xs text-gray-500">
+                          <span className="flex items-center gap-1">
+                            <FileText className="w-3 h-3" />
+                            {template.questions} questions
+                          </span>
+                          <span className="px-2 py-0.5 bg-yellow-100 text-yellow-700 rounded-full">
+                            {template.difficulty}
+                          </span>
+                          <span className="px-2 py-0.5 bg-blue-100 text-blue-700 rounded-full">
+                            Passing: {template.passingScore}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="mt-4 pt-4 border-t border-gray-200">
+                    <h4 className="text-sm font-medium text-gray-900 mb-2">Achievement Badges</h4>
+                    <div className="flex flex-wrap gap-2">
+                      {[
+                        { icon: '🏆', name: 'Perfect Score', rarity: 'Epic' },
+                        { icon: '🎯', name: 'First Attempt', rarity: 'Rare' },
+                        { icon: '🌟', name: 'SOP Master', rarity: 'Legendary' },
+                        { icon: '⚡', name: 'Speed Demon', rarity: 'Rare' },
+                        { icon: '💪', name: 'Persistent Learner', rarity: 'Common' },
+                        { icon: '🚀', name: 'Quick Learner', rarity: 'Rare' }
+                      ].map((badge, idx) => (
+                        <div key={idx} className="flex items-center gap-1 px-3 py-1 bg-gray-100 rounded-full text-xs">
+                          <span>{badge.icon}</span>
+                          <span className="font-medium text-gray-700">{badge.name}</span>
+                          <span className={`px-1.5 py-0.5 rounded text-[10px] ${
+                            badge.rarity === 'Legendary' ? 'bg-purple-200 text-purple-800' :
+                            badge.rarity === 'Epic' ? 'bg-pink-200 text-pink-800' :
+                            badge.rarity === 'Rare' ? 'bg-blue-200 text-blue-800' :
+                            'bg-gray-200 text-gray-700'
+                          }`}>
+                            {badge.rarity}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="mt-4 pt-4 border-t border-gray-200">
+                    <p className="text-xs text-gray-500">
+                      💡 Assessments will be automatically linked to your SOPs. Employees can take 
+                      assessments to earn certifications and unlock achievement badges.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Help Section */}
+                <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                  <div className="flex items-start gap-3">
+                    <AlertCircle className="w-5 h-5 text-gray-600 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <h4 className="font-medium text-gray-900 mb-1">
+                        Need Custom Assessments?
+                      </h4>
+                      <p className="text-sm text-gray-600 mb-2">
+                        Want to create custom questions or industry-specific assessments? Contact our 
+                        support team for assistance with creating tailored assessments for your organization.
                       </p>
                       <a 
                         href="mailto:support@yourapp.com"
