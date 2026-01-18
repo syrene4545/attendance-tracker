@@ -304,7 +304,7 @@ const AssessmentResultsView = ({ attemptId, onViewChange }) => {
         
         {!results.passed && (
           <button
-            onClick={() => onViewChange('take-assessment', results.assessment.sopId)}
+            onClick={() => onViewChange('take-assessment', results.assessment.assessmentKey)}
             className="inline-flex items-center justify-center px-6 py-3 border border-transparent shadow-sm text-base font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700"
           >
             <RotateCcw className="w-5 h-5 mr-2" />

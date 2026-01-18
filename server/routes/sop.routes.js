@@ -466,7 +466,7 @@
 //     const result = await pool.query(
 //       `SELECT 
 //         sa.id as "acknowledgmentId",
-//         s.id as "sopId",
+//         s.id as "assessmentKey",
 //         s.title,
 //         s.category,
 //         s.description,
@@ -684,7 +684,7 @@ router.get('/acknowledgments/pending', async (req, res) => {
     const result = await pool.query(
       `SELECT 
         sa.id as "acknowledgmentId",
-        s.id as "sopId",
+        s.id as "assessmentKey",
         s.title,
         s.category,
         s.description,

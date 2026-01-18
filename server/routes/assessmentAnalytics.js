@@ -26,7 +26,7 @@ router.get('/team-overview', requireManagerRole, async (req, res) => {
 
     // Get all active assessments for this company
     const assessmentsResult = await pool.query(
-      `SELECT id, sop_id, title 
+      `SELECT id, assessment_key, title 
        FROM assessments 
        WHERE active = true AND company_id = $1`,
       [companyId]
@@ -74,7 +74,7 @@ router.get('/team-overview', requireManagerRole, async (req, res) => {
       console.log(`  📋 Assessment "${assessment.title}": ${uniqueUsers.length} attempted, ${passedUsers.length} passed`);
 
       overview.byAssessment.push({
-        sopId: assessment.sop_id,
+        assessmentKey: assessment.assessment_key,
         title: assessment.title,
         attempted: uniqueUsers.length,
         completed: passedUsers.length,
@@ -127,7 +127,7 @@ router.get('/employee/:userId', requireManagerRole, async (req, res) => {
 
     // Get user's certifications (only for company's assessments)
     const certificationsResult = await pool.query(
-      `SELECT c.*, a.title, a.sop_id
+      `SELECT c.*, a.title, a.assessment_key
        FROM user_certifications c
        JOIN assessments a ON c.assessment_id = a.id
        WHERE c.user_id = $1 AND a.company_id = $2`,
@@ -148,7 +148,7 @@ router.get('/employee/:userId', requireManagerRole, async (req, res) => {
 
     // Get all active assessments for this company
     const assessmentsResult = await pool.query(
-      `SELECT id, sop_id, title 
+      `SELECT id, assessment_key, title 
        FROM assessments 
        WHERE active = true AND company_id = $1`,
       [companyId]
@@ -168,7 +168,7 @@ router.get('/employee/:userId', requireManagerRole, async (req, res) => {
       }, null);
 
       return {
-        sopId: assessment.sop_id,
+        assessmentKey: assessment.assessment_key,
         title: assessment.title,
         status: cert ? 'certified' : (userAttempts.length > 0 ? 'attempted' : 'not-started'),
         attempts: userAttempts.length,
@@ -194,24 +194,24 @@ router.get('/employee/:userId', requireManagerRole, async (req, res) => {
 });
 
 // Helper function for weak areas logic
-async function getWeakAreas(companyId, sopId = null) {
+async function getWeakAreas(companyId, assessmentKey = null) {
   try {
     let attemptsQuery;
     let attemptsParams;
 
-    if (sopId) {
+    if (assessmentKey) {
       // Get attempts for specific SOP in this company
       attemptsQuery = `
         SELECT aa.id 
         FROM assessment_attempts aa
         JOIN assessments a ON aa.assessment_id = a.id
         JOIN users u ON aa.user_id = u.id
-        WHERE a.sop_id = $1 
+        WHERE a.assessment_key = $1 
           AND aa.status = 'completed'
           AND a.company_id = $2
           AND u.company_id = $2
       `;
-      attemptsParams = [sopId, companyId];
+      attemptsParams = [assessmentKey, companyId];
     } else {
       // Get all attempts in this company
       attemptsQuery = `
@@ -263,16 +263,16 @@ async function getWeakAreas(companyId, sopId = null) {
     let questionsQuery;
     let questionsParams;
 
-    if (sopId) {
+    if (assessmentKey) {
       questionsQuery = `
         SELECT q.question_id, q.question_text, q.category
         FROM assessment_questions q
         JOIN assessments a ON q.assessment_id = a.id
-        WHERE a.sop_id = $1 
+        WHERE a.assessment_key = $1 
           AND a.active = true 
           AND a.company_id = $2
       `;
-      questionsParams = [sopId, companyId];
+      questionsParams = [assessmentKey, companyId];
     } else {
       questionsQuery = `
         SELECT q.question_id, q.question_text, q.category
@@ -330,12 +330,12 @@ router.get('/weak-areas', requireManagerRole, async (req, res) => {
 });
 
 // Get common mistakes/weak areas - SPECIFIC SOP
-router.get('/weak-areas/:sopId', requireManagerRole, async (req, res) => {
+router.get('/weak-areas/:assessmentKey', requireManagerRole, async (req, res) => {
   try {
     const companyId = req.companyId;
-    const { sopId } = req.params;
+    const { assessmentKey } = req.params;
 
-    const weakAreas = await getWeakAreas(companyId, sopId);
+    const weakAreas = await getWeakAreas(companyId, assessmentKey);
     res.json(weakAreas);
   } catch (error) {
     console.error('❌ Weak areas error:', error);

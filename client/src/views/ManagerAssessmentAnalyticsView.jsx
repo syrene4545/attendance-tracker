@@ -56,13 +56,13 @@
 //     }
 //   };
 
-//   const fetchWeakAreas = async (sopId = null) => {
+//   const fetchWeakAreas = async (assessmentKey = null) => {
 //     try {
 //       const token = localStorage.getItem('token');
 //       const headers = { Authorization: `Bearer ${token}` };
 
-//       const endpoint = sopId 
-//         ? `${API_URL}/assessment-analytics/weak-areas/${sopId}`
+//       const endpoint = assessmentKey 
+//         ? `${API_URL}/assessment-analytics/weak-areas/${assessmentKey}`
 //         : `${API_URL}/assessment-analytics/weak-areas`;
 
 //       const weakAreasRes = await axios.get(endpoint, { headers });
@@ -241,7 +241,7 @@
 //               </thead>
 //               <tbody className="bg-white divide-y divide-gray-200">
 //                 {teamOverview.byAssessment.map((assessment) => (
-//                   <tr key={assessment.sopId} className="hover:bg-gray-50">
+//                   <tr key={assessment.assessmentKey} className="hover:bg-gray-50">
 //                     <td className="px-6 py-4 whitespace-nowrap">
 //                       <div className="text-sm font-medium text-gray-900">
 //                         {assessment.title}
@@ -303,7 +303,7 @@
 //             >
 //               <option value="all">All Assessments</option>
 //               {teamOverview.byAssessment.map((assessment) => (
-//                 <option key={assessment.sopId} value={assessment.sopId}>
+//                 <option key={assessment.assessmentKey} value={assessment.assessmentKey}>
 //                   {assessment.title}
 //                 </option>
 //               ))}
@@ -465,13 +465,13 @@ const ManagerAssessmentAnalyticsView = ({ onViewChange }) => {
     }
   };
 
-  const fetchWeakAreas = async (sopId = null) => {
+  const fetchWeakAreas = async (assessmentKey = null) => {
     try {
       const token = localStorage.getItem('token');
       const headers = { Authorization: `Bearer ${token}` };
 
-      const endpoint = sopId 
-        ? `${API_URL}/assessment-analytics/weak-areas/${sopId}`
+      const endpoint = assessmentKey 
+        ? `${API_URL}/assessment-analytics/weak-areas/${assessmentKey}`
         : `${API_URL}/assessment-analytics/weak-areas`;
 
       const weakAreasRes = await axios.get(endpoint, { headers });
@@ -711,7 +711,7 @@ const ManagerAssessmentAnalyticsView = ({ onViewChange }) => {
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
                   {teamOverview.byAssessment.map((assessment) => (
-                    <tr key={assessment.sopId} className="hover:bg-gray-50">
+                    <tr key={assessment.assessmentKey} className="hover:bg-gray-50">
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-sm font-medium text-gray-900">
                           {assessment.title}
@@ -810,7 +810,7 @@ const ManagerAssessmentAnalyticsView = ({ onViewChange }) => {
                       <div className="px-6 pb-6 border-t border-gray-200 bg-gray-50">
                         <div className="mt-4 space-y-3">
                           {employeeDetails[employee.id].progress.map((prog) => (
-                            <div key={prog.sopId} className="bg-white rounded-lg p-4 shadow-sm">
+                            <div key={prog.assessmentKey} className="bg-white rounded-lg p-4 shadow-sm">
                               <div className="flex items-center justify-between mb-2">
                                 <h4 className="text-sm font-medium text-gray-900">{prog.title}</h4>
                                 <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(prog.status)}`}>
@@ -868,7 +868,7 @@ const ManagerAssessmentAnalyticsView = ({ onViewChange }) => {
                 >
                   <option value="all">All Assessments</option>
                   {teamOverview.byAssessment.map((assessment) => (
-                    <option key={assessment.sopId} value={assessment.sopId}>
+                    <option key={assessment.assessmentKey} value={assessment.assessmentKey}>
                       {assessment.title}
                     </option>
                   ))}

@@ -4,6 +4,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { protect } from '../middleware/authMiddleware.js';
 import { extractTenant, verifyTenantAccess } from '../middleware/tenantMiddleware.js';
+import { onboardNewCompany } from '../services/onboarding.service.js';
 
 const router = express.Router();
 
@@ -155,6 +156,26 @@ router.post('/register', async (req, res) => {
     console.log('✅ Default data created');
 
     await client.query('COMMIT');
+
+    // ✅ TRIGGER ONBOARDING AUTOMATION
+    if (newCompany && newCompany.id) {
+      // Run onboarding asynchronously (don't block response)
+      onboardNewCompany({
+        companyId: newCompany.id,
+        adminId: adminUser.id,
+        seedSOPs: true
+      }).catch(error => {
+        console.error('❌ Async onboarding failed:', error);
+        // Log but don't fail the request
+      });
+      
+      // OR run synchronously (wait for completion):
+      // const onboardingResult = await onboardNewCompany({
+      //   companyId: newCompany.id,
+      //   adminId: adminUser.id,
+      //   seedSOPs: true
+      // });
+    }
 
     // 8. Generate JWT
     const token = jwt.sign(

@@ -52,14 +52,14 @@ const LeaderboardView = ({ onViewChange }) => {
     }
   };
 
-  const fetchLeaderboard = async (sopId) => {
+  const fetchLeaderboard = async (assessmentKey) => {
     try {
       const token = localStorage.getItem('token');
       const headers = { Authorization: `Bearer ${token}` };
 
-      const endpoint = sopId === 'all' 
+      const endpoint = assessmentKey === 'all' 
         ? `${API_URL}/assessments/leaderboard`
-        : `${API_URL}/assessments/leaderboard/${sopId}`;
+        : `${API_URL}/assessments/leaderboard/${assessmentKey}`;
 
       const leaderboardRes = await axios.get(endpoint, { headers });
       setLeaderboard(leaderboardRes.data);
@@ -148,7 +148,7 @@ const LeaderboardView = ({ onViewChange }) => {
           >
             <option value="all">All Assessments</option>
             {assessments.map((assessment) => (
-              <option key={assessment.id} value={assessment.sopId}>
+              <option key={assessment.id} value={assessment.assessmentKey}>
                 {assessment.title}
               </option>
             ))}
