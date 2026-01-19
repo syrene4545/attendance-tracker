@@ -790,17 +790,37 @@ router.get('/', async (req, res) => {
 // ========================================
 
 // Get specific assessment (with questions for taking the test)
-router.get('/:id', async (req, res) => {
+
+// Get specific assessment by ID or assessment_key
+router.get('/:identifier', async (req, res) => {
   try {
     const companyId = req.companyId;
+    const identifier = req.params.identifier;
 
-    const assessmentResult = await pool.query(
-      `SELECT id, assessment_key, title, description, passing_score, time_limit, 
-              total_points, mandatory, difficulty
-       FROM assessments
-       WHERE id = $1 AND active = true AND company_id = $2`,
-      [req.params.id, companyId]
-    );
+    // Determine if identifier is numeric ID or string key
+    const isNumericId = !isNaN(Number(identifier));
+
+    let assessmentResult;
+
+    if (isNumericId) {
+      // Fetch by numeric ID
+      assessmentResult = await pool.query(
+        `SELECT id, assessment_key, title, description, passing_score, time_limit, 
+                total_points, mandatory, difficulty
+         FROM assessments
+         WHERE id = $1 AND active = true AND company_id = $2`,
+        [Number(identifier), companyId]
+      );
+    } else {
+      // Fetch by assessment_key
+      assessmentResult = await pool.query(
+        `SELECT id, assessment_key, title, description, passing_score, time_limit, 
+                total_points, mandatory, difficulty
+         FROM assessments
+         WHERE assessment_key = $1 AND active = true AND company_id = $2`,
+        [identifier, companyId]
+      );
+    }
 
     if (assessmentResult.rows.length === 0) {
       return res.status(404).json({ message: 'Assessment not found' });
@@ -808,12 +828,13 @@ router.get('/:id', async (req, res) => {
 
     const assessment = assessmentResult.rows[0];
 
+    // Fetch questions
     const questionsResult = await pool.query(
       `SELECT question_id, question_type, question_text, options, points, category
        FROM assessment_questions
        WHERE assessment_id = $1
        ORDER BY question_order ASC`,
-      [req.params.id]
+      [assessment.id]  // Always use numeric ID for questions
     );
 
     const sanitizedAssessment = {
@@ -842,6 +863,59 @@ router.get('/:id', async (req, res) => {
     res.status(500).json({ message: 'Server error' });
   }
 });
+
+// router.get('/:id', async (req, res) => {
+//   try {
+//     const companyId = req.companyId;
+
+//     const assessmentResult = await pool.query(
+//       `SELECT id, assessment_key, title, description, passing_score, time_limit, 
+//               total_points, mandatory, difficulty
+//        FROM assessments
+//        WHERE id = $1 AND active = true AND company_id = $2`,
+//       [req.params.id, companyId]
+//     );
+
+//     if (assessmentResult.rows.length === 0) {
+//       return res.status(404).json({ message: 'Assessment not found' });
+//     }
+
+//     const assessment = assessmentResult.rows[0];
+
+//     const questionsResult = await pool.query(
+//       `SELECT question_id, question_type, question_text, options, points, category
+//        FROM assessment_questions
+//        WHERE assessment_id = $1
+//        ORDER BY question_order ASC`,
+//       [req.params.id]
+//     );
+
+//     const sanitizedAssessment = {
+//       id: assessment.id,
+//       assessmentKey: assessment.assessment_key,
+//       title: assessment.title,
+//       description: assessment.description,
+//       passingScore: assessment.passing_score,
+//       timeLimit: assessment.time_limit,
+//       totalPoints: assessment.total_points,
+//       mandatory: assessment.mandatory,
+//       difficulty: assessment.difficulty,
+//       questions: questionsResult.rows.map(q => ({
+//         id: q.question_id,
+//         type: q.question_type,
+//         question: q.question_text,
+//         options: q.options,
+//         points: q.points,
+//         category: q.category
+//       }))
+//     };
+
+//     res.json(sanitizedAssessment);
+//   } catch (error) {
+//     console.error('❌ Error fetching assessment:', error);
+//     res.status(500).json({ message: 'Server error' });
+//   }
+// });
 
 // Start an assessment attempt
 
