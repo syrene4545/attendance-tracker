@@ -110,36 +110,6 @@ const AssessmentFormView = ({ assessment, onBack }) => {
     }
   };
 
-
-//   const fetchQuestions = async () => {
-//     try {
-//       const response = await api.get(`/assessments/admin/${assessment.id}/questions`);
-//       const fetchedQuestions = response.data.questions || [];
-      
-//       // ✅ Parse JSON fields and set default options for true/false
-//       const parsedQuestions = fetchedQuestions.map(q => ({
-//         id: q.id,
-//         questionText: q.questionText,
-//         questionType: q.questionType,
-//         options: q.questionType === 'multiple-choice' 
-//           ? (Array.isArray(q.options) ? q.options : JSON.parse(q.options || '[]'))
-//           : ['True', 'False'], // ✅ Set default options for true/false
-//         correctAnswer: typeof q.correctAnswer === 'string' 
-//           ? q.correctAnswer 
-//           : JSON.parse(q.correctAnswer),
-//         points: q.points || 10,
-//         category: q.category || '',
-//         explanation: q.explanation || '',
-//         questionOrder: q.questionOrder
-//       }));
-      
-//       setQuestions(parsedQuestions);
-//     } catch (error) {
-//       console.error('Error fetching questions:', error);
-//     }
-//   };
-
-
   const addQuestion = () => {
     setQuestions([
       ...questions,
@@ -194,33 +164,6 @@ const AssessmentFormView = ({ assessment, onBack }) => {
     
     setQuestions(newQuestions);
   };
-
-//   const updateQuestion = (index, field, value) => {
-//     const newQuestions = [...questions];
-    
-//     // ✅ When changing question type, update options
-//     if (field === 'questionType') {
-//       if (value === 'true-false') {
-//         newQuestions[index] = {
-//           ...newQuestions[index],
-//           questionType: value,
-//           options: ['True', 'False'], // ✅ Set true/false options
-//           correctAnswer: '' // Reset correct answer
-//         };
-//       } else {
-//         newQuestions[index] = {
-//           ...newQuestions[index],
-//           questionType: value,
-//           options: ['', '', '', ''], // Reset to multiple choice options
-//           correctAnswer: ''
-//         };
-//       }
-//     } else {
-//       newQuestions[index] = { ...newQuestions[index], [field]: value };
-//     }
-    
-//     setQuestions(newQuestions);
-//   };
 
   const updateOption = (questionIndex, optionIndex, value) => {
     const newQuestions = [...questions];

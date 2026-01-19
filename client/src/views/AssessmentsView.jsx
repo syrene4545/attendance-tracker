@@ -1,3 +1,4 @@
+// client\src\views\AssessmentsView.jsx
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { 
@@ -341,13 +342,19 @@ const AssessmentsView = ({ onViewChange }) => {
                       </div>
 
                       <div className="ml-6">
+
                         <button
                           onClick={() => onViewChange('take-assessment', assessment.id)}
                           className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
                         >
-                          {assessment.userProgress.passed ? 'Retake' : 'Start Assessment'}
+                          {assessment.userProgress.passed 
+                            ? 'Retake' 
+                            : assessment.userProgress.attempts > 0 && !assessment.userProgress.passed
+                            ? 'Resume Assessment'
+                            : 'Start Assessment'}
                           <Zap className="ml-2 w-4 h-4" />
                         </button>
+
                       </div>
                     </div>
                   </div>

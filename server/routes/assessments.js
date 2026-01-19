@@ -864,61 +864,6 @@ router.get('/:identifier', async (req, res) => {
   }
 });
 
-// router.get('/:id', async (req, res) => {
-//   try {
-//     const companyId = req.companyId;
-
-//     const assessmentResult = await pool.query(
-//       `SELECT id, assessment_key, title, description, passing_score, time_limit, 
-//               total_points, mandatory, difficulty
-//        FROM assessments
-//        WHERE id = $1 AND active = true AND company_id = $2`,
-//       [req.params.id, companyId]
-//     );
-
-//     if (assessmentResult.rows.length === 0) {
-//       return res.status(404).json({ message: 'Assessment not found' });
-//     }
-
-//     const assessment = assessmentResult.rows[0];
-
-//     const questionsResult = await pool.query(
-//       `SELECT question_id, question_type, question_text, options, points, category
-//        FROM assessment_questions
-//        WHERE assessment_id = $1
-//        ORDER BY question_order ASC`,
-//       [req.params.id]
-//     );
-
-//     const sanitizedAssessment = {
-//       id: assessment.id,
-//       assessmentKey: assessment.assessment_key,
-//       title: assessment.title,
-//       description: assessment.description,
-//       passingScore: assessment.passing_score,
-//       timeLimit: assessment.time_limit,
-//       totalPoints: assessment.total_points,
-//       mandatory: assessment.mandatory,
-//       difficulty: assessment.difficulty,
-//       questions: questionsResult.rows.map(q => ({
-//         id: q.question_id,
-//         type: q.question_type,
-//         question: q.question_text,
-//         options: q.options,
-//         points: q.points,
-//         category: q.category
-//       }))
-//     };
-
-//     res.json(sanitizedAssessment);
-//   } catch (error) {
-//     console.error('❌ Error fetching assessment:', error);
-//     res.status(500).json({ message: 'Server error' });
-//   }
-// });
-
-// Start an assessment attempt
-
 // Start an assessment attempt
 router.post('/:id/start', async (req, res) => {
   const client = await pool.connect();
@@ -954,7 +899,8 @@ router.post('/:id/start', async (req, res) => {
       await client.query('ROLLBACK');
       return res.status(409).json({ 
         message: 'You already have an in-progress attempt for this assessment',
-        attemptId: existingAttempt.rows[0].id
+        attemptId: existingAttempt.rows[0].id,
+        startedAt: existingAttempt.rows[0].started_at
       });
     }
 

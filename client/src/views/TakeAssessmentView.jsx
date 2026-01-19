@@ -1,3 +1,4 @@
+// client\src\views\TakeAssessmentView.jsx
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { 
@@ -32,21 +33,41 @@ const TakeAssessmentView = ({ assessmentId, onViewChange }) => {
       const token = localStorage.getItem('token');
       const headers = { Authorization: `Bearer ${token}` };
 
+      // Fetch assessment details
       const assessmentRes = await axios.get(`${API_URL}/assessments/${assessmentId}`, { headers });
       setAssessment(assessmentRes.data);
 
-      // Start the attempt
-      const attemptRes = await axios.post(
-        `${API_URL}/assessments/${assessmentId}/start`,
-        {},
-        { headers }
-      );
-      setAttemptId(attemptRes.data.attemptId);
-      setStartTime(new Date(attemptRes.data.startedAt));
+      // ✅ START OR RESUME ASSESSMENT ATTEMPT (HANDLES 409)
+      let attemptData;
+
+      try {
+        // Try to start a new attempt
+        const attemptRes = await axios.post(
+          `${API_URL}/assessments/${assessmentId}/start`,
+          {},
+          { headers }
+        );
+        attemptData = attemptRes.data;
+        console.log('✅ New attempt started:', attemptData.attemptId);
+        
+      } catch (err) {
+        // ✅ CRITICAL FIX: Handle 409 - attempt already exists
+        if (err.response?.status === 409 && err.response.data?.attemptId) {
+          attemptData = err.response.data;
+          console.log('ℹ️ Resuming existing attempt:', attemptData.attemptId);
+        } else {
+          // Other errors - rethrow
+          throw err;
+        }
+      }
+
+      // Set attempt data (works for both new and resumed attempts)
+      setAttemptId(attemptData.attemptId);
+      setStartTime(new Date(attemptData.startedAt || new Date()));
       
       setLoading(false);
     } catch (error) {
-      console.error('Error fetching assessment:', error);
+      console.error('❌ Error fetching assessment:', error);
       setLoading(false);
     }
   };
