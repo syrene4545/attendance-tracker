@@ -844,6 +844,8 @@ router.get('/:id', async (req, res) => {
 });
 
 // Start an assessment attempt
+
+// Start an assessment attempt
 router.post('/:id/start', async (req, res) => {
   const client = await pool.connect();
   
@@ -852,6 +854,7 @@ router.post('/:id/start', async (req, res) => {
 
     const companyId = req.companyId;
 
+    // Fetch assessment details
     const assessmentResult = await client.query(
       `SELECT id, assessment_key, total_points, company_id
        FROM assessments 
@@ -866,26 +869,52 @@ router.post('/:id/start', async (req, res) => {
 
     const assessment = assessmentResult.rows[0];
 
-    const countResult = await client.query(
-      `SELECT COUNT(*) as count
-       FROM assessment_attempts
-       WHERE user_id = $1 AND assessment_id = $2 AND status = 'completed'`,
+    // Check for existing in-progress attempt
+    const existingAttempt = await client.query(
+      `SELECT id FROM assessment_attempts
+       WHERE user_id = $1 AND assessment_id = $2 AND status = 'in-progress'`,
       [req.user.id, assessment.id]
     );
 
-    const previousAttempts = parseInt(countResult.rows[0].count);
+    if (existingAttempt.rows.length > 0) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ 
+        message: 'You already have an in-progress attempt for this assessment',
+        attemptId: existingAttempt.rows[0].id
+      });
+    }
 
+    // Get max attempt number (improved version)
+    const attemptCountResult = await client.query(
+      `SELECT COALESCE(MAX(attempt_number), 0) as max_attempt
+       FROM assessment_attempts
+       WHERE user_id = $1 AND assessment_id = $2`,
+      [req.user.id, assessment.id]
+    );
+
+    const nextAttemptNumber = parseInt(attemptCountResult.rows[0].max_attempt) + 1;
+
+    // Create new attempt
     const attemptResult = await client.query(
       `INSERT INTO assessment_attempts 
        (user_id, assessment_id, assessment_key, company_id, started_at, attempt_number, total_points, status)
        VALUES ($1, $2, $3, $4, NOW(), $5, $6, 'in-progress')
        RETURNING id, started_at, attempt_number`,
-      [req.user.id, assessment.id, assessment.assessment_key, companyId, previousAttempts + 1, assessment.total_points]
+      [
+        req.user.id, 
+        assessment.id, 
+        assessment.assessment_key, 
+        companyId, 
+        nextAttemptNumber, 
+        assessment.total_points
+      ]
     );
 
     await client.query('COMMIT');
 
     const attempt = attemptResult.rows[0];
+
+    console.log(`✅ Assessment attempt started: User ${req.user.id}, Assessment ${assessment.id}, Attempt #${attempt.attempt_number}`);
 
     res.json({
       attemptId: attempt.id,
@@ -895,7 +924,10 @@ router.post('/:id/start', async (req, res) => {
   } catch (err) {
     await client.query('ROLLBACK');
     console.error('❌ Error starting assessment:', err);
-    res.status(500).json({ message: 'Server error' });
+    res.status(500).json({ 
+      message: 'Server error',
+      error: process.env.NODE_ENV === 'development' ? err.message : undefined
+    });
   } finally {
     client.release();
   }
@@ -904,6 +936,22 @@ router.post('/:id/start', async (req, res) => {
 // Submit assessment attempt
 router.post('/:attemptId/submit', async (req, res) => {
   const { answers } = req.body;
+  const { attemptId } = req.params;
+  
+  // ✅ CRITICAL GUARD: Validate attemptId before processing
+  if (!attemptId || attemptId === 'null' || attemptId === 'undefined') {
+    return res.status(400).json({ 
+      message: 'Invalid assessment attempt ID. Please start the assessment first.' 
+    });
+  }
+
+  // Validate answers exist
+  if (!answers || !Array.isArray(answers) || answers.length === 0) {
+    return res.status(400).json({ 
+      message: 'No answers provided' 
+    });
+  }
+  
   const client = await pool.connect();
   
   try {
@@ -911,12 +959,14 @@ router.post('/:attemptId/submit', async (req, res) => {
 
     const companyId = req.companyId;
 
+    // Fetch attempt with tenant verification
     const attemptResult = await client.query(
-      `SELECT at.id, at.user_id, at.assessment_id, at.started_at, at.attempt_number, a.company_id
+      `SELECT at.id, at.user_id, at.assessment_id, at.assessment_key, at.started_at, 
+              at.attempt_number, at.status, a.company_id
        FROM assessment_attempts at
        JOIN assessments a ON at.assessment_id = a.id
        WHERE at.id = $1 AND a.company_id = $2`,
-      [req.params.attemptId, companyId]
+      [attemptId, companyId]
     );
 
     if (attemptResult.rows.length === 0) {
@@ -926,11 +976,21 @@ router.post('/:attemptId/submit', async (req, res) => {
 
     const attempt = attemptResult.rows[0];
 
+    // Verify ownership
     if (attempt.user_id !== req.user.id) {
       await client.query('ROLLBACK');
       return res.status(403).json({ message: 'Unauthorized' });
     }
 
+    // Prevent double submission
+    if (attempt.status === 'completed') {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ 
+        message: 'This assessment has already been submitted' 
+      });
+    }
+
+    // Fetch assessment details and questions
     const assessmentResult = await client.query(
       `SELECT a.id, a.assessment_key, a.total_points, a.passing_score,
               q.question_id, q.correct_answer, q.points
@@ -939,6 +999,11 @@ router.post('/:attemptId/submit', async (req, res) => {
        WHERE a.id = $1`,
       [attempt.assessment_id]
     );
+
+    if (assessmentResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ message: 'Assessment not found' });
+    }
 
     const assessment = {
       id: assessmentResult.rows[0].id,
@@ -954,14 +1019,19 @@ router.post('/:attemptId/submit', async (req, res) => {
 
     let pointsEarned = 0;
 
+    // Grade each answer
     for (const userAnswer of answers) {
       const question = assessment.questions.find(q => q.id === userAnswer.questionId);
       
-      if (!question) continue;
+      if (!question) {
+        console.warn(`⚠️ Question ${userAnswer.questionId} not found`);
+        continue;
+      }
 
       let correct = false;
       const correctAnswer = question.correctAnswer;
       
+      // Handle different answer types
       if (Array.isArray(correctAnswer)) {
         const userAns = Array.isArray(userAnswer.userAnswer) 
           ? userAnswer.userAnswer.sort() 
@@ -975,6 +1045,7 @@ router.post('/:attemptId/submit', async (req, res) => {
       const pointsForQuestion = correct ? question.points : 0;
       pointsEarned += pointsForQuestion;
 
+      // Save individual answer
       await client.query(
         `INSERT INTO assessment_answers 
          (attempt_id, question_id, user_answer, correct_answer, correct, points_earned, points_possible)
@@ -991,12 +1062,15 @@ router.post('/:attemptId/submit', async (req, res) => {
       );
     }
 
+    // Calculate final score
     const score = (pointsEarned / assessment.total_points) * 100;
     const passed = score >= assessment.passing_score;
 
+    // Calculate time taken
     const startedAt = new Date(attempt.started_at);
     const timeTaken = Math.floor((new Date() - startedAt) / 1000);
 
+    // Update attempt record
     await client.query(
       `UPDATE assessment_attempts
        SET score = $1, points_earned = $2, passed = $3, time_taken = $4,
@@ -1005,6 +1079,7 @@ router.post('/:attemptId/submit', async (req, res) => {
       [Math.round(score * 10) / 10, pointsEarned, passed, timeTaken, attempt.id]
     );
 
+    // Handle certifications if passed
     if (passed) {
       const existingCertResult = await client.query(
         `SELECT id, score FROM user_certifications
@@ -1021,6 +1096,7 @@ router.post('/:attemptId/submit', async (req, res) => {
              WHERE id = $3`,
             [score, attempt.id, existingCert.id]
           );
+          console.log(`✅ Updated certification for user ${req.user.id}: ${score}%`);
         }
       } else {
         await client.query(
@@ -1029,8 +1105,10 @@ router.post('/:attemptId/submit', async (req, res) => {
            VALUES ($1, $2, $3, $4, $5, $6)`,
           [req.user.id, assessment.assessment_key, assessment.id, attempt.id, score, companyId]
         );
+        console.log(`✅ New certification for user ${req.user.id}: ${score}%`);
       }
 
+      // Award badges
       await checkAndAwardBadges(client, req.user.id, companyId, {
         id: attempt.id,
         score: Math.round(score * 10) / 10,
@@ -1041,6 +1119,8 @@ router.post('/:attemptId/submit', async (req, res) => {
     }
 
     await client.query('COMMIT');
+
+    console.log(`✅ Assessment submitted: User ${req.user.id}, Score ${score}%, Passed: ${passed}`);
 
     res.json({
       score: Math.round(score * 10) / 10,
@@ -1053,7 +1133,10 @@ router.post('/:attemptId/submit', async (req, res) => {
   } catch (err) {
     await client.query('ROLLBACK');
     console.error('❌ Error submitting assessment:', err);
-    res.status(500).json({ message: 'Server error' });
+    res.status(500).json({ 
+      message: 'Server error',
+      error: process.env.NODE_ENV === 'development' ? err.message : undefined
+    });
   } finally {
     client.release();
   }
