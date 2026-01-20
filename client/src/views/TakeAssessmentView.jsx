@@ -29,6 +29,7 @@ const TakeAssessmentView = ({ assessmentId, onViewChange }) => {
   }, [assessmentId]);
 
   const fetchAssessment = async () => {
+    console.log('🚀 fetchAssessment called - VERSION 2.0');
     try {
       const token = localStorage.getItem('token');
       const headers = { Authorization: `Bearer ${token}` };
