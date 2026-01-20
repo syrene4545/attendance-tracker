@@ -1119,10 +1119,11 @@ router.post('/:attemptId/submit', async (req, res) => {
           console.log(`✅ Updated certification for user ${req.user.id}: ${score}%`);
         }
       } else {
+
         await client.query(
           `INSERT INTO user_certifications
-           (user_id, assessment_key, assessment_id, attempt_id, score, company_id)
-           VALUES ($1, $2, $3, $4, $5, $6)`,
+          (user_id, assessment_key, assessment_id, attempt_id, score, company_id, source_type)
+          VALUES ($1, $2, $3, $4, $5, $6, 'ASSESSMENT')`,
           [req.user.id, assessment.assessment_key, assessment.id, attempt.id, score, companyId]
         );
         console.log(`✅ New certification for user ${req.user.id}: ${score}%`);
