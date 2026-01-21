@@ -66,6 +66,26 @@ const AssessmentsView = ({ onViewChange }) => {
     }
   };
 
+  // In AssessmentsView.jsx - Enhanced button logic
+  const getButtonText = (assessment) => {
+    const { userProgress } = assessment;
+    
+    if (userProgress.passed) {
+      return 'Retake Assessment';
+    }
+    
+    // Future: support in-progress resumes
+    if (userProgress.inProgress) {
+      return 'Resume Assessment';
+    }
+    
+    if (userProgress.attempts > 0 && !userProgress.passed) {
+      return 'Try Again';
+    }
+    
+    return 'Start Assessment';
+  };
+
   const getStatusBadge = (assessment) => {
     const { userProgress } = assessment;
     
@@ -347,13 +367,21 @@ const AssessmentsView = ({ onViewChange }) => {
                           onClick={() => onViewChange('take-assessment', assessment.id)}
                           className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
                         >
+                          {getButtonText(assessment)}
+                          <Zap className="ml-2 w-4 h-4" />
+                        </button>
+
+                        {/* <button
+                          onClick={() => onViewChange('take-assessment', assessment.id)}
+                          className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                        >
                           {assessment.userProgress.passed 
                             ? 'Retake' 
                             : assessment.userProgress.attempts > 0 && !assessment.userProgress.passed
                             ? 'Resume Assessment'
                             : 'Start Assessment'}
                           <Zap className="ml-2 w-4 h-4" />
-                        </button>
+                        </button> */}
 
                       </div>
                     </div>

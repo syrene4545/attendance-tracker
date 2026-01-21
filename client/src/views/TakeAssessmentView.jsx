@@ -1,5 +1,5 @@
 // client\src\views\TakeAssessmentView.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react'; // ✅ FIX #1: Added useCallback
 import axios from 'axios';
 import { 
   Clock, 
@@ -19,10 +19,20 @@ const TakeAssessmentView = ({ assessmentId, onViewChange }) => {
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [answers, setAnswers] = useState({});
   const [startTime, setStartTime] = useState(null);
+  const [timeElapsed, setTimeElapsed] = useState(0);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
+    // Reset all state when starting a new assessment
+    setAttemptId(null);
+    setCurrentQuestionIndex(0);
+    setAnswers({});
+    setStartTime(null);
+    setTimeElapsed(0);
+    setLoading(true);
+    setSubmitting(false);
+
     if (assessmentId) {
       fetchAssessment();
     }
@@ -62,13 +72,19 @@ const TakeAssessmentView = ({ assessmentId, onViewChange }) => {
         }
       }
 
+      // ✅ FIX #4: Fail loudly if startedAt is missing
+      if (!attemptData.startedAt) {
+        throw new Error('Attempt start time missing from server');
+      }
+
       // Set attempt data (works for both new and resumed attempts)
       setAttemptId(attemptData.attemptId);
-      setStartTime(new Date(attemptData.startedAt || new Date()));
+      setStartTime(new Date(attemptData.startedAt));
       
       setLoading(false);
     } catch (error) {
       console.error('❌ Error fetching assessment:', error);
+      alert('Failed to load assessment. Please try again.');
       setLoading(false);
     }
   };
@@ -80,8 +96,15 @@ const TakeAssessmentView = ({ assessmentId, onViewChange }) => {
     }));
   };
 
-  const handleSubmit = async () => {
-    if (Object.keys(answers).length < assessment.questions.length) {
+  // ✅ Define handleSubmit with useCallback (BEFORE timer effect)
+  const handleSubmit = useCallback(async () => {
+    // ✅ FIX #5: Guard against missing attemptId
+    if (!attemptId) {
+      alert('Assessment attempt not initialized. Please refresh and try again.');
+      return;
+    }
+
+    if (Object.keys(answers).length < assessment?.questions?.length) {
       if (!window.confirm('You have not answered all questions. Submit anyway?')) {
         return;
       }
@@ -110,10 +133,47 @@ const TakeAssessmentView = ({ assessmentId, onViewChange }) => {
       alert('Error submitting assessment. Please try again.');
       setSubmitting(false);
     }
+  }, [answers, assessment, attemptId, onViewChange]);
+
+  // ✅ Timer effect (AFTER handleSubmit definition)
+  useEffect(() => {
+    if (!startTime) return;
+
+    const interval = setInterval(() => {
+      const elapsed = Math.floor((new Date() - new Date(startTime)) / 1000);
+      setTimeElapsed(elapsed);
+      
+      // ✅ FIX #2: Guard auto-submit with submitting flag
+      if (
+        assessment?.timeLimit && 
+        elapsed >= assessment.timeLimit * 60 &&
+        !submitting  // Prevent multiple auto-submits
+      ) {
+        console.log('⏰ Time limit reached - auto-submitting');
+        handleSubmit();
+      }
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [startTime, assessment?.timeLimit, handleSubmit, submitting]); // ✅ FIX #3: Stable dependencies
+
+  const timeDisplay = () => {
+    if (!assessment?.timeLimit) {
+      // No time limit - show elapsed time
+      const minutes = Math.floor(timeElapsed / 60);
+      const seconds = timeElapsed % 60;
+      return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+    } else {
+      // Has time limit - show remaining time
+      const totalSeconds = assessment.timeLimit * 60;
+      const remaining = Math.max(0, totalSeconds - timeElapsed);
+      const minutes = Math.floor(remaining / 60);
+      const seconds = remaining % 60;
+      return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+    }
   };
 
   const currentQuestion = assessment?.questions[currentQuestionIndex];
-  const isAnswered = currentQuestion && answers[currentQuestion.id];
   const answeredCount = Object.keys(answers).length;
   const progressPercentage = (answeredCount / (assessment?.questions.length || 1)) * 100;
 
@@ -176,10 +236,11 @@ const TakeAssessmentView = ({ assessmentId, onViewChange }) => {
               Pass mark: {assessment.passingScore}% • {assessment.totalPoints} questions
             </p>
           </div>
+
           <div className="flex items-center text-gray-600">
             <Clock className="w-5 h-5 mr-2" />
             <span className="text-sm font-medium">
-              {Math.floor((new Date() - startTime) / 60000)} min
+              {timeDisplay()}
             </span>
           </div>
         </div>

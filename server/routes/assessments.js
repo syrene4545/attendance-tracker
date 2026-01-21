@@ -865,21 +865,35 @@ router.get('/:identifier', async (req, res) => {
 });
 
 // Start an assessment attempt
-router.post('/:id/start', async (req, res) => {
+router.post('/:identifier/start', async (req, res) => {
   const client = await pool.connect();
   
   try {
     await client.query('BEGIN');
 
     const companyId = req.companyId;
+    const { identifier } = req.params;
+    
+    // Determine if identifier is numeric ID or string key
+    const isNumericId = !isNaN(Number(identifier));
 
-    // Fetch assessment details
-    const assessmentResult = await client.query(
-      `SELECT id, assessment_key, total_points, company_id
-       FROM assessments 
-       WHERE id = $1 AND active = true AND company_id = $2`,
-      [req.params.id, companyId]
-    );
+    let assessmentResult;
+
+    if (isNumericId) {
+      assessmentResult = await client.query(
+        `SELECT id, assessment_key, total_points, company_id
+         FROM assessments 
+         WHERE id = $1 AND active = true AND company_id = $2`,
+        [Number(identifier), companyId]
+      );
+    } else {
+      assessmentResult = await client.query(
+        `SELECT id, assessment_key, total_points, company_id
+         FROM assessments 
+         WHERE assessment_key = $1 AND active = true AND company_id = $2`,
+        [identifier, companyId]
+      );
+    }
 
     if (assessmentResult.rows.length === 0) {
       await client.query('ROLLBACK');
@@ -888,10 +902,13 @@ router.post('/:id/start', async (req, res) => {
 
     const assessment = assessmentResult.rows[0];
 
-    // Check for existing in-progress attempt
+    // ✅ REFINEMENT: Add ordering + limit for safety
     const existingAttempt = await client.query(
-      `SELECT id FROM assessment_attempts
-       WHERE user_id = $1 AND assessment_id = $2 AND status = 'in-progress'`,
+      `SELECT id, started_at 
+       FROM assessment_attempts
+       WHERE user_id = $1 AND assessment_id = $2 AND status = 'in-progress'
+       ORDER BY started_at DESC
+       LIMIT 1`,
       [req.user.id, assessment.id]
     );
 
@@ -904,7 +921,7 @@ router.post('/:id/start', async (req, res) => {
       });
     }
 
-    // Get max attempt number (improved version)
+    // Get max attempt number
     const attemptCountResult = await client.query(
       `SELECT COALESCE(MAX(attempt_number), 0) as max_attempt
        FROM assessment_attempts
