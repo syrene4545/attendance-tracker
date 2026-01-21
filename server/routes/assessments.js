@@ -35,7 +35,7 @@ router.get('/admin/all', requireManagerRole, async (req, res) => {
         a.title, 
         a.description, 
         a.passing_score as "passingScore",
-        a.time_limit as "timeLimit", 
+        a.time_limit_minutes as "timeLimitMinutes", 
         a.total_points as "totalPoints",
         a.mandatory, 
         a.difficulty,
@@ -238,7 +238,7 @@ router.put('/admin/:id', requireManagerRole, async (req, res) => {
       title, 
       description, 
       passingScore, 
-      timeLimit, 
+      timeLimitMinutes, 
       difficulty,
       mandatory,
       active,
@@ -269,7 +269,7 @@ router.put('/admin/:id', requireManagerRole, async (req, res) => {
     // Update assessment
     await client.query(
       `UPDATE assessments 
-       SET title = $1, description = $2, passing_score = $3, time_limit = $4,
+       SET title = $1, description = $2, passing_score = $3, time_limit_minutes = $4,
            total_points = $5, difficulty = $6, mandatory = $7, active = $8,
            updated_at = NOW()
        WHERE id = $9 AND company_id = $10`,
@@ -277,7 +277,7 @@ router.put('/admin/:id', requireManagerRole, async (req, res) => {
         title,
         description || null,
         passingScore,
-        timeLimit,
+        timeLimitMinutes,
         totalPoints,
         difficulty,
         mandatory || false,
@@ -727,7 +727,7 @@ router.get('/', async (req, res) => {
 
     const assessmentsResult = await pool.query(
       `SELECT a.id, a.assessment_key, a.title, a.description, a.passing_score, 
-              a.time_limit, a.total_points, a.mandatory, a.difficulty
+              a.time_limit_minutes, a.total_points, a.mandatory, a.difficulty
        FROM assessments a
        WHERE a.active = true AND a.company_id = $1
        ORDER BY a.created_at DESC`,
@@ -762,7 +762,7 @@ router.get('/', async (req, res) => {
         title: assessment.title,
         description: assessment.description,
         passingScore: assessment.passing_score,
-        timeLimit: assessment.time_limit,
+        timeLimitMinutes: assessment.time_limit_minutes,
         totalPoints: assessment.total_points,
         mandatory: assessment.mandatory,
         difficulty: assessment.difficulty,
@@ -806,7 +806,7 @@ router.get('/:identifier', async (req, res) => {
     if (isNumericId) {
       // Fetch by numeric ID
       assessmentResult = await pool.query(
-        `SELECT id, assessment_key, title, description, passing_score, time_limit, 
+        `SELECT id, assessment_key, title, description, passing_score, time_limit_minutes, 
                 total_points, mandatory, difficulty
          FROM assessments
          WHERE id = $1 AND active = true AND company_id = $2`,
@@ -815,7 +815,7 @@ router.get('/:identifier', async (req, res) => {
     } else {
       // Fetch by assessment_key
       assessmentResult = await pool.query(
-        `SELECT id, assessment_key, title, description, passing_score, time_limit, 
+        `SELECT id, assessment_key, title, description, passing_score, time_limit_minutes, 
                 total_points, mandatory, difficulty
          FROM assessments
          WHERE assessment_key = $1 AND active = true AND company_id = $2`,
@@ -845,7 +845,7 @@ router.get('/:identifier', async (req, res) => {
       description: assessment.description,
       passingScore: assessment.passing_score,
       timeLimitMinutes: assessment.time_limit_minutes || 10,
-      // timeLimit: assessment.time_limit,
+      // timeLimitMinutes: assessment.time_limit_minutes,
       totalPoints: assessment.total_points,
       mandatory: assessment.mandatory,
       difficulty: assessment.difficulty,
