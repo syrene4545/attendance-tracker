@@ -136,41 +136,48 @@ const TakeAssessmentView = ({ assessmentId, onViewChange }) => {
   }, [answers, assessment, attemptId, onViewChange]);
 
   // ✅ Timer effect (AFTER handleSubmit definition)
+
+  // ✅ FIXED: Proper countdown timer
   useEffect(() => {
     if (!startTime) return;
 
     const interval = setInterval(() => {
-      const elapsed = Math.floor((new Date() - new Date(startTime)) / 1000);
-      setTimeElapsed(elapsed);
+      const elapsedSeconds = Math.floor((new Date() - new Date(startTime)) / 1000);
       
-      // ✅ FIX #2: Guard auto-submit with submitting flag
-      if (
-        assessment?.timeLimit && 
-        elapsed >= assessment.timeLimit * 60 &&
-        !submitting  // Prevent multiple auto-submits
-      ) {
-        console.log('⏰ Time limit reached - auto-submitting');
-        handleSubmit();
+      // Calculate remaining time
+      if (assessment?.timeLimitMinutes) {
+        const totalSeconds = assessment.timeLimitMinutes * 60;
+        const remaining = Math.max(0, totalSeconds - elapsedSeconds);
+        setTimeElapsed(remaining);
+        
+        // Auto-submit when time runs out
+        if (remaining === 0 && !submitting) {
+          console.log('⏰ Time expired - auto-submitting');
+          handleSubmit();
+        }
+      } else {
+        // No time limit - count up
+        setTimeElapsed(elapsedSeconds);
       }
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [startTime, assessment?.timeLimit, handleSubmit, submitting]); // ✅ FIX #3: Stable dependencies
+  }, [startTime, assessment?.timeLimitMinutes, handleSubmit, submitting]);
 
+  // ✅ FIXED: Display countdown timer
   const timeDisplay = () => {
-    if (!assessment?.timeLimit) {
-      // No time limit - show elapsed time
-      const minutes = Math.floor(timeElapsed / 60);
-      const seconds = timeElapsed % 60;
-      return `${minutes}:${seconds.toString().padStart(2, '0')}`;
-    } else {
-      // Has time limit - show remaining time
-      const totalSeconds = assessment.timeLimit * 60;
-      const remaining = Math.max(0, totalSeconds - timeElapsed);
-      const minutes = Math.floor(remaining / 60);
-      const seconds = remaining % 60;
-      return `${minutes}:${seconds.toString().padStart(2, '0')}`;
-    }
+    const minutes = Math.floor(timeElapsed / 60);
+    const seconds = timeElapsed % 60;
+    const timeString = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+    
+    // Show warning color when time is low
+    const isLowTime = assessment?.timeLimitMinutes && timeElapsed < 60;
+    
+    return (
+      <span className={isLowTime ? 'text-red-600 font-bold' : ''}>
+        {timeString}
+      </span>
+    );
   };
 
   const currentQuestion = assessment?.questions[currentQuestionIndex];

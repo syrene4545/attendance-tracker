@@ -113,7 +113,7 @@ router.post('/admin/create', requireManagerRole, async (req, res) => {
       title, 
       description, 
       passingScore, 
-      timeLimit, 
+      timeLimitMinutes, 
       difficulty,
       mandatory,
       active,
@@ -144,10 +144,11 @@ router.post('/admin/create', requireManagerRole, async (req, res) => {
     console.log('📋 Generated assessment_key:', uniqueassessmentKey);
 
     // Create assessment
+
     const assessmentResult = await client.query(
       `INSERT INTO assessments (
-        company_id, assessment_key, title, description, passing_score, time_limit, 
-        total_points, difficulty, mandatory, active, created_by
+        company_id, assessment_key, title, description, passing_score, 
+        time_limit_minutes, total_points, difficulty, mandatory, active, created_by
       )
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
       RETURNING id`,
@@ -157,7 +158,7 @@ router.post('/admin/create', requireManagerRole, async (req, res) => {
         title,
         description || null,
         passingScore,
-        timeLimit,
+        timeLimitMinutes || 10, // ✅ Default to 10 minutes
         totalPoints,
         difficulty,
         mandatory || false,
@@ -165,7 +166,7 @@ router.post('/admin/create', requireManagerRole, async (req, res) => {
         req.user.id
       ]
     );
-
+    
     const assessmentId = assessmentResult.rows[0].id;
 
     // Create questions
@@ -843,7 +844,8 @@ router.get('/:identifier', async (req, res) => {
       title: assessment.title,
       description: assessment.description,
       passingScore: assessment.passing_score,
-      timeLimit: assessment.time_limit,
+      timeLimitMinutes: assessment.time_limit_minutes || 10,
+      // timeLimit: assessment.time_limit,
       totalPoints: assessment.total_points,
       mandatory: assessment.mandatory,
       difficulty: assessment.difficulty,
@@ -1251,9 +1253,22 @@ async function checkAndAwardBadges(client, userId, companyId, attempt, assessmen
         case 'speed-demon':
           shouldAward = attempt.timeTaken < (criteriaValue.value || 300);
           break;
-        
+
         case 'persistent':
-          shouldAward = attempt.attemptNumber >= (criteriaValue.value || 3) && attempt.passed;
+          // ✅ FIXED: Only award if user failed 2+ times before passing
+          const passAttemptResult = await client.query(
+            `SELECT MIN(attempt_number) as first_pass_attempt
+            FROM assessment_attempts
+            WHERE user_id = $1 
+              AND assessment_id = $2 
+              AND passed = true`,
+            [userId, assessment.id]
+          );
+          
+          const firstPassAttempt = passAttemptResult.rows[0]?.first_pass_attempt;
+          
+          // Award only if they passed on attempt 3 or later
+          shouldAward = firstPassAttempt >= 3 && attempt.passed;
           break;
 
         case 'high-first-score':
