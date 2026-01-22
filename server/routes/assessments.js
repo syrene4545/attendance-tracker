@@ -1,3 +1,4 @@
+// server\routes\assessments.js
 import express from 'express';
 import { pool } from '../index.js';
 import { protect } from '../middleware/authMiddleware.js';
@@ -867,6 +868,7 @@ router.get('/:identifier', async (req, res) => {
 });
 
 // Start an assessment attempt
+
 router.post('/:identifier/start', async (req, res) => {
   const client = await pool.connect();
   
@@ -876,21 +878,20 @@ router.post('/:identifier/start', async (req, res) => {
     const companyId = req.companyId;
     const { identifier } = req.params;
     
-    // Determine if identifier is numeric ID or string key
     const isNumericId = !isNaN(Number(identifier));
 
     let assessmentResult;
 
     if (isNumericId) {
       assessmentResult = await client.query(
-        `SELECT id, assessment_key, total_points, company_id
+        `SELECT id, assessment_key, total_points, company_id, time_limit_minutes
          FROM assessments 
          WHERE id = $1 AND active = true AND company_id = $2`,
         [Number(identifier), companyId]
       );
     } else {
       assessmentResult = await client.query(
-        `SELECT id, assessment_key, total_points, company_id
+        `SELECT id, assessment_key, total_points, company_id, time_limit_minutes
          FROM assessments 
          WHERE assessment_key = $1 AND active = true AND company_id = $2`,
         [identifier, companyId]
@@ -904,14 +905,32 @@ router.post('/:identifier/start', async (req, res) => {
 
     const assessment = assessmentResult.rows[0];
 
-    // ✅ REFINEMENT: Add ordering + limit for safety
+    // ✅ FIX #1: Auto-close any expired in-progress attempts
+    await client.query(
+      `UPDATE assessment_attempts
+       SET completed_at = NOW(),
+           status = 'completed',
+           passed = false,
+           score = 0,
+           updated_at = NOW()
+       WHERE user_id = $1 
+         AND assessment_id = $2 
+         AND status = 'in-progress'
+         AND started_at + (interval '1 minute' * $3) < NOW()`,
+      [req.user.id, assessment.id, assessment.time_limit_minutes || 10]
+    );
+
+    // ✅ FIX #2: Check for VALID (non-expired) in-progress attempts
     const existingAttempt = await client.query(
       `SELECT id, started_at 
        FROM assessment_attempts
-       WHERE user_id = $1 AND assessment_id = $2 AND status = 'in-progress'
+       WHERE user_id = $1 
+         AND assessment_id = $2 
+         AND status = 'in-progress'
+         AND started_at + (interval '1 minute' * $3) > NOW()
        ORDER BY started_at DESC
        LIMIT 1`,
-      [req.user.id, assessment.id]
+      [req.user.id, assessment.id, assessment.time_limit_minutes || 10]
     );
 
     if (existingAttempt.rows.length > 0) {
@@ -973,23 +992,20 @@ router.post('/:identifier/start', async (req, res) => {
 });
 
 // Submit assessment attempt
+
 router.post('/:attemptId/submit', async (req, res) => {
-  const { answers } = req.body;
+  const { answers = [] } = req.body; // ✅ Default to empty array
   const { attemptId } = req.params;
   
-  // ✅ CRITICAL GUARD: Validate attemptId before processing
+  // ✅ Guard against null attemptId
   if (!attemptId || attemptId === 'null' || attemptId === 'undefined') {
     return res.status(400).json({ 
       message: 'Invalid assessment attempt ID. Please start the assessment first.' 
     });
   }
 
-  // Validate answers exist
-  if (!answers || !Array.isArray(answers) || answers.length === 0) {
-    return res.status(400).json({ 
-      message: 'No answers provided' 
-    });
-  }
+  // ✅ REMOVED: Validation that requires answers
+  // Old code: if (!answers || answers.length === 0) { return 400 }
   
   const client = await pool.connect();
   
@@ -1001,7 +1017,7 @@ router.post('/:attemptId/submit', async (req, res) => {
     // Fetch attempt with tenant verification
     const attemptResult = await client.query(
       `SELECT at.id, at.user_id, at.assessment_id, at.assessment_key, at.started_at, 
-              at.attempt_number, at.status, a.company_id
+              at.attempt_number, at.status, a.company_id, a.time_limit_minutes
        FROM assessment_attempts at
        JOIN assessments a ON at.assessment_id = a.id
        WHERE at.id = $1 AND a.company_id = $2`,
@@ -1028,6 +1044,12 @@ router.post('/:attemptId/submit', async (req, res) => {
         message: 'This assessment has already been submitted' 
       });
     }
+
+    // ✅ FIX #3: Check if attempt expired
+    const timeLimitMinutes = attempt.time_limit_minutes || 10;
+    const startedAt = new Date(attempt.started_at);
+    const expiryTime = new Date(startedAt.getTime() + timeLimitMinutes * 60 * 1000);
+    const isExpired = new Date() > expiryTime;
 
     // Fetch assessment details and questions
     const assessmentResult = await client.query(
@@ -1058,55 +1080,58 @@ router.post('/:attemptId/submit', async (req, res) => {
 
     let pointsEarned = 0;
 
-    // Grade each answer
-    for (const userAnswer of answers) {
-      const question = assessment.questions.find(q => q.id === userAnswer.questionId);
-      
-      if (!question) {
-        console.warn(`⚠️ Question ${userAnswer.questionId} not found`);
-        continue;
+    // ✅ Only grade if answers exist
+    if (answers.length > 0) {
+      // Grade each answer
+      for (const userAnswer of answers) {
+        const question = assessment.questions.find(q => q.id === userAnswer.questionId);
+        
+        if (!question) {
+          console.warn(`⚠️ Question ${userAnswer.questionId} not found`);
+          continue;
+        }
+
+        let correct = false;
+        const correctAnswer = question.correctAnswer;
+        
+        if (Array.isArray(correctAnswer)) {
+          const userAns = Array.isArray(userAnswer.userAnswer) 
+            ? userAnswer.userAnswer.sort() 
+            : [userAnswer.userAnswer].sort();
+          const correctAns = correctAnswer.sort();
+          correct = JSON.stringify(userAns) === JSON.stringify(correctAns);
+        } else {
+          correct = userAnswer.userAnswer === correctAnswer;
+        }
+
+        const pointsForQuestion = correct ? question.points : 0;
+        pointsEarned += pointsForQuestion;
+
+        // Save individual answer
+        await client.query(
+          `INSERT INTO assessment_answers 
+           (attempt_id, question_id, user_answer, correct_answer, correct, points_earned, points_possible)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+          [
+            attempt.id,
+            question.id,
+            JSON.stringify(userAnswer.userAnswer),
+            JSON.stringify(correctAnswer),
+            correct,
+            pointsForQuestion,
+            question.points
+          ]
+        );
       }
-
-      let correct = false;
-      const correctAnswer = question.correctAnswer;
-      
-      // Handle different answer types
-      if (Array.isArray(correctAnswer)) {
-        const userAns = Array.isArray(userAnswer.userAnswer) 
-          ? userAnswer.userAnswer.sort() 
-          : [userAnswer.userAnswer].sort();
-        const correctAns = correctAnswer.sort();
-        correct = JSON.stringify(userAns) === JSON.stringify(correctAns);
-      } else {
-        correct = userAnswer.userAnswer === correctAnswer;
-      }
-
-      const pointsForQuestion = correct ? question.points : 0;
-      pointsEarned += pointsForQuestion;
-
-      // Save individual answer
-      await client.query(
-        `INSERT INTO assessment_answers 
-         (attempt_id, question_id, user_answer, correct_answer, correct, points_earned, points_possible)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-        [
-          attempt.id,
-          question.id,
-          JSON.stringify(userAnswer.userAnswer),
-          JSON.stringify(correctAnswer),
-          correct,
-          pointsForQuestion,
-          question.points
-        ]
-      );
     }
 
     // Calculate final score
-    const score = (pointsEarned / assessment.total_points) * 100;
+    const score = assessment.total_points > 0 
+      ? (pointsEarned / assessment.total_points) * 100 
+      : 0;
     const passed = score >= assessment.passing_score;
 
     // Calculate time taken
-    const startedAt = new Date(attempt.started_at);
     const timeTaken = Math.floor((new Date() - startedAt) / 1000);
 
     // Update attempt record
@@ -1138,7 +1163,6 @@ router.post('/:attemptId/submit', async (req, res) => {
           console.log(`✅ Updated certification for user ${req.user.id}: ${score}%`);
         }
       } else {
-
         await client.query(
           `INSERT INTO user_certifications
           (user_id, assessment_key, assessment_id, attempt_id, score, company_id, source_type)
@@ -1160,7 +1184,7 @@ router.post('/:attemptId/submit', async (req, res) => {
 
     await client.query('COMMIT');
 
-    console.log(`✅ Assessment submitted: User ${req.user.id}, Score ${score}%, Passed: ${passed}`);
+    console.log(`✅ Assessment submitted: User ${req.user.id}, Score ${score}%, Passed: ${passed}${isExpired ? ' (expired)' : ''}`);
 
     res.json({
       score: Math.round(score * 10) / 10,
@@ -1168,7 +1192,8 @@ router.post('/:attemptId/submit', async (req, res) => {
       pointsEarned,
       totalPoints: assessment.total_points,
       timeTaken,
-      attemptId: attempt.id
+      attemptId: attempt.id,
+      expired: isExpired
     });
   } catch (err) {
     await client.query('ROLLBACK');
