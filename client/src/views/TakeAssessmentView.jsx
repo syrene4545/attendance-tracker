@@ -1,5 +1,5 @@
 // client\src\views\TakeAssessmentView.jsx
-import React, { useState, useEffect, useCallback } from 'react'; // ✅ FIX #1: Added useCallback
+import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { 
   Clock, 
@@ -19,7 +19,7 @@ const TakeAssessmentView = ({ assessmentId, onViewChange }) => {
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [answers, setAnswers] = useState({});
   const [startTime, setStartTime] = useState(null);
-  const [timeElapsed, setTimeElapsed] = useState(0);
+  const [timeRemaining, setTimeRemaining] = useState(null); // ✅ Changed from timeElapsed
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
@@ -29,7 +29,7 @@ const TakeAssessmentView = ({ assessmentId, onViewChange }) => {
     setCurrentQuestionIndex(0);
     setAnswers({});
     setStartTime(null);
-    setTimeElapsed(0);
+    setTimeRemaining(null);
     setLoading(true);
     setSubmitting(false);
 
@@ -52,7 +52,6 @@ const TakeAssessmentView = ({ assessmentId, onViewChange }) => {
       let attemptData;
 
       try {
-        // Try to start a new attempt
         const attemptRes = await axios.post(
           `${API_URL}/assessments/${assessmentId}/start`,
           {},
@@ -62,24 +61,31 @@ const TakeAssessmentView = ({ assessmentId, onViewChange }) => {
         console.log('✅ New attempt started:', attemptData.attemptId);
         
       } catch (err) {
-        // ✅ CRITICAL FIX: Handle 409 - attempt already exists
         if (err.response?.status === 409 && err.response.data?.attemptId) {
           attemptData = err.response.data;
           console.log('ℹ️ Resuming existing attempt:', attemptData.attemptId);
         } else {
-          // Other errors - rethrow
           throw err;
         }
       }
 
-      // ✅ FIX #4: Fail loudly if startedAt is missing
+      // ✅ Validate startedAt exists
       if (!attemptData.startedAt) {
         throw new Error('Attempt start time missing from server');
       }
 
-      // Set attempt data (works for both new and resumed attempts)
+      // Set attempt data
       setAttemptId(attemptData.attemptId);
-      setStartTime(new Date(attemptData.startedAt));
+      setStartTime(attemptData.startedAt); // ✅ Store as string, parse in timer
+      
+      // ✅ Initialize time remaining
+      if (assessmentRes.data.timeLimitMinutes) {
+        const startTimestamp = new Date(attemptData.startedAt).getTime();
+        const elapsedSeconds = Math.floor((Date.now() - startTimestamp) / 1000);
+        const totalSeconds = assessmentRes.data.timeLimitMinutes * 60;
+        const remaining = Math.max(0, totalSeconds - elapsedSeconds);
+        setTimeRemaining(remaining);
+      }
       
       setLoading(false);
     } catch (error) {
@@ -96,15 +102,18 @@ const TakeAssessmentView = ({ assessmentId, onViewChange }) => {
     }));
   };
 
-  // ✅ Define handleSubmit with useCallback (BEFORE timer effect)
-  const handleSubmit = useCallback(async () => {
-    // ✅ FIX #5: Guard against missing attemptId
+  // ✅ Define handleSubmit with useCallback
+  const handleSubmit = useCallback(async (isAutoSubmit = false) => {
+    // ✅ Guard against missing attemptId
     if (!attemptId) {
-      alert('Assessment attempt not initialized. Please refresh and try again.');
+      if (!isAutoSubmit) {
+        alert('Assessment attempt not initialized. Please refresh and try again.');
+      }
       return;
     }
 
-    if (Object.keys(answers).length < assessment?.questions?.length) {
+    // ✅ Only show confirmation for manual submit with incomplete answers
+    if (!isAutoSubmit && Object.keys(answers).length < assessment?.questions?.length) {
       if (!window.confirm('You have not answered all questions. Submit anyway?')) {
         return;
       }
@@ -130,51 +139,62 @@ const TakeAssessmentView = ({ assessmentId, onViewChange }) => {
       onViewChange('assessment-results', attemptId);
     } catch (error) {
       console.error('Error submitting assessment:', error);
-      alert('Error submitting assessment. Please try again.');
+      if (!isAutoSubmit) {
+        alert('Error submitting assessment. Please try again.');
+      }
       setSubmitting(false);
     }
   }, [answers, assessment, attemptId, onViewChange]);
 
-  // ✅ Timer effect (AFTER handleSubmit definition)
-
-  // ✅ FIXED: Proper countdown timer
+  // ✅ FIXED: Timer effect with proper guards
   useEffect(() => {
-    if (!startTime) return;
+    // ✅ CRITICAL: Don't start timer until all data is ready
+    if (!attemptId || !startTime || !assessment?.timeLimitMinutes) {
+      return;
+    }
+
+    const startTimestamp = new Date(startTime).getTime();
+
+    // ✅ Guard against invalid date
+    if (isNaN(startTimestamp)) {
+      console.error('❌ Invalid start time:', startTime);
+      return;
+    }
+
+    console.log('⏱️ Starting countdown timer from:', timeRemaining, 'seconds');
 
     const interval = setInterval(() => {
-      const elapsedSeconds = Math.floor((new Date() - new Date(startTime)) / 1000);
-      
-      // Calculate remaining time
-      if (assessment?.timeLimitMinutes) {
-        const totalSeconds = assessment.timeLimitMinutes * 60;
-        const remaining = Math.max(0, totalSeconds - elapsedSeconds);
-        setTimeElapsed(remaining);
-        
-        // Auto-submit when time runs out
-        if (remaining === 0 && !submitting) {
-          console.log('⏰ Time expired - auto-submitting');
-          handleSubmit();
-        }
-      } else {
-        // No time limit - count up
-        setTimeElapsed(elapsedSeconds);
+      const now = Date.now();
+      const elapsedSeconds = Math.floor((now - startTimestamp) / 1000);
+      const totalSeconds = assessment.timeLimitMinutes * 60;
+      const remaining = Math.max(0, totalSeconds - elapsedSeconds);
+
+      setTimeRemaining(remaining);
+
+      // ✅ Auto-submit when time expires
+      if (remaining === 0 && !submitting) {
+        console.log('⏰ Time expired - auto-submitting');
+        clearInterval(interval); // ✅ Clear interval first
+        handleSubmit(true); // Pass true for auto-submit
       }
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [startTime, assessment?.timeLimitMinutes, handleSubmit, submitting]);
+  }, [attemptId, startTime, assessment?.timeLimitMinutes, submitting, handleSubmit, timeRemaining]);
 
   // ✅ FIXED: Display countdown timer
   const timeDisplay = () => {
-    const minutes = Math.floor(timeElapsed / 60);
-    const seconds = timeElapsed % 60;
+    if (timeRemaining === null) return '--:--';
+    
+    const minutes = Math.floor(timeRemaining / 60);
+    const seconds = timeRemaining % 60;
     const timeString = `${minutes}:${seconds.toString().padStart(2, '0')}`;
     
     // Show warning color when time is low
-    const isLowTime = assessment?.timeLimitMinutes && timeElapsed < 60;
+    const isLowTime = timeRemaining < 60;
     
     return (
-      <span className={isLowTime ? 'text-red-600 font-bold' : ''}>
+      <span className={isLowTime ? 'text-red-600 font-bold animate-pulse' : ''}>
         {timeString}
       </span>
     );
@@ -240,16 +260,18 @@ const TakeAssessmentView = ({ assessmentId, onViewChange }) => {
           <div>
             <h1 className="text-2xl font-bold text-gray-900">{assessment.title}</h1>
             <p className="text-sm text-gray-600 mt-1">
-              Pass mark: {assessment.passingScore}% • {assessment.totalPoints} questions
+              Pass mark: {assessment.passingScore}% • {assessment.questions.length} questions
             </p>
           </div>
 
-          <div className="flex items-center text-gray-600">
-            <Clock className="w-5 h-5 mr-2" />
-            <span className="text-sm font-medium">
-              {timeDisplay()}
-            </span>
-          </div>
+          {assessment.timeLimitMinutes && (
+            <div className="flex items-center text-gray-600">
+              <Clock className="w-5 h-5 mr-2" />
+              <span className="text-sm font-medium">
+                {timeDisplay()}
+              </span>
+            </div>
+          )}
         </div>
 
         {/* Progress Bar */}
@@ -396,7 +418,7 @@ const TakeAssessmentView = ({ assessmentId, onViewChange }) => {
           </button>
         ) : (
           <button
-            onClick={handleSubmit}
+            onClick={() => handleSubmit(false)}
             disabled={submitting}
             className="inline-flex items-center px-6 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-green-600 hover:bg-green-700 disabled:opacity-50"
           >
