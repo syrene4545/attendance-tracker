@@ -904,8 +904,9 @@ router.post('/:identifier/start', async (req, res) => {
     }
 
     const assessment = assessmentResult.rows[0];
+    const timeLimitMinutes = assessment.time_limit_minutes || 10;
 
-    // ✅ FIX #1: Auto-close any expired in-progress attempts
+    // ✅ Auto-close any expired in-progress attempts
     await client.query(
       `UPDATE assessment_attempts
        SET completed_at = NOW(),
@@ -917,12 +918,13 @@ router.post('/:identifier/start', async (req, res) => {
          AND assessment_id = $2 
          AND status = 'in-progress'
          AND started_at + (interval '1 minute' * $3) < NOW()`,
-      [req.user.id, assessment.id, assessment.time_limit_minutes || 10]
+      [req.user.id, assessment.id, timeLimitMinutes]
     );
 
-    // ✅ FIX #2: Check for VALID (non-expired) in-progress attempts
+    // ✅ Check for VALID (non-expired) in-progress attempts
     const existingAttempt = await client.query(
-      `SELECT id, started_at 
+      `SELECT id, started_at,
+              started_at + (interval '1 minute' * $3) as expires_at
        FROM assessment_attempts
        WHERE user_id = $1 
          AND assessment_id = $2 
@@ -930,7 +932,7 @@ router.post('/:identifier/start', async (req, res) => {
          AND started_at + (interval '1 minute' * $3) > NOW()
        ORDER BY started_at DESC
        LIMIT 1`,
-      [req.user.id, assessment.id, assessment.time_limit_minutes || 10]
+      [req.user.id, assessment.id, timeLimitMinutes]
     );
 
     if (existingAttempt.rows.length > 0) {
@@ -938,7 +940,8 @@ router.post('/:identifier/start', async (req, res) => {
       return res.status(409).json({ 
         message: 'You already have an in-progress attempt for this assessment',
         attemptId: existingAttempt.rows[0].id,
-        startedAt: existingAttempt.rows[0].started_at
+        startedAt: existingAttempt.rows[0].started_at,
+        expiresAt: existingAttempt.rows[0].expires_at // ✅ Include expiry
       });
     }
 
@@ -972,12 +975,19 @@ router.post('/:identifier/start', async (req, res) => {
 
     const attempt = attemptResult.rows[0];
 
-    console.log(`✅ Assessment attempt started: User ${req.user.id}, Assessment ${assessment.id}, Attempt #${attempt.attempt_number}`);
+    // ✅ CRITICAL: Calculate expiry on server
+    const expiresAt = new Date(
+      new Date(attempt.started_at).getTime() + 
+      timeLimitMinutes * 60 * 1000
+    );
+
+    console.log(`✅ Assessment attempt started: User ${req.user.id}, Assessment ${assessment.id}, Attempt #${attempt.attempt_number}, Expires: ${expiresAt.toISOString()}`);
 
     res.json({
       attemptId: attempt.id,
       attemptNumber: attempt.attempt_number,
-      startedAt: attempt.started_at
+      startedAt: attempt.started_at,
+      expiresAt: expiresAt.toISOString() // ✅ Server-calculated expiry
     });
   } catch (err) {
     await client.query('ROLLBACK');
