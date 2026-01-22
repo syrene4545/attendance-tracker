@@ -1,5 +1,5 @@
 // client\src\views\TakeAssessmentView.jsx
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react'; // ✅ Add useRef
 import axios from 'axios';
 import { 
   Clock, 
@@ -19,9 +19,12 @@ const TakeAssessmentView = ({ assessmentId, onViewChange }) => {
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [answers, setAnswers] = useState({});
   const [startTime, setStartTime] = useState(null);
-  const [timeRemaining, setTimeRemaining] = useState(null); // ✅ Changed from timeElapsed
+  const [timeRemaining, setTimeRemaining] = useState(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  
+  // ✅ CRITICAL FIX #1: Prevent multiple auto-submits
+  const hasAutoSubmittedRef = useRef(false);
 
   useEffect(() => {
     // Reset all state when starting a new assessment
@@ -32,6 +35,7 @@ const TakeAssessmentView = ({ assessmentId, onViewChange }) => {
     setTimeRemaining(null);
     setLoading(true);
     setSubmitting(false);
+    hasAutoSubmittedRef.current = false; // ✅ Reset auto-submit flag
 
     if (assessmentId) {
       fetchAssessment();
@@ -39,7 +43,7 @@ const TakeAssessmentView = ({ assessmentId, onViewChange }) => {
   }, [assessmentId]);
 
   const fetchAssessment = async () => {
-    console.log('🚀 fetchAssessment called - VERSION 2.0');
+    console.log('🚀 fetchAssessment called - VERSION 3.0');
     try {
       const token = localStorage.getItem('token');
       const headers = { Authorization: `Bearer ${token}` };
@@ -76,16 +80,11 @@ const TakeAssessmentView = ({ assessmentId, onViewChange }) => {
 
       // Set attempt data
       setAttemptId(attemptData.attemptId);
-      setStartTime(attemptData.startedAt); // ✅ Store as string, parse in timer
+      setStartTime(attemptData.startedAt);
       
-      // ✅ Initialize time remaining
-      if (assessmentRes.data.timeLimitMinutes) {
-        const startTimestamp = new Date(attemptData.startedAt).getTime();
-        const elapsedSeconds = Math.floor((Date.now() - startTimestamp) / 1000);
-        const totalSeconds = assessmentRes.data.timeLimitMinutes * 60;
-        const remaining = Math.max(0, totalSeconds - elapsedSeconds);
-        setTimeRemaining(remaining);
-      }
+      // ✅ CRITICAL FIX #2: DO NOT calculate timeRemaining here
+      // Let the timer effect handle it (single source of truth)
+      setTimeRemaining(null);
       
       setLoading(false);
     } catch (error) {
@@ -146,9 +145,9 @@ const TakeAssessmentView = ({ assessmentId, onViewChange }) => {
     }
   }, [answers, assessment, attemptId, onViewChange]);
 
-  // ✅ FIXED: Timer effect with proper guards
+  // ✅ CRITICAL FIX #3: Timer effect WITHOUT timeRemaining in dependencies
   useEffect(() => {
-    // ✅ CRITICAL: Don't start timer until all data is ready
+    // ✅ Don't start timer until all data is ready
     if (!attemptId || !startTime || !assessment?.timeLimitMinutes) {
       return;
     }
@@ -161,28 +160,29 @@ const TakeAssessmentView = ({ assessmentId, onViewChange }) => {
       return;
     }
 
-    console.log('⏱️ Starting countdown timer from:', timeRemaining, 'seconds');
+    console.log('⏱️ Starting countdown timer');
 
     const interval = setInterval(() => {
-      const now = Date.now();
-      const elapsedSeconds = Math.floor((now - startTimestamp) / 1000);
+      const elapsedSeconds = Math.floor((Date.now() - startTimestamp) / 1000);
       const totalSeconds = assessment.timeLimitMinutes * 60;
       const remaining = Math.max(0, totalSeconds - elapsedSeconds);
 
       setTimeRemaining(remaining);
 
-      // ✅ Auto-submit when time expires
-      if (remaining === 0 && !submitting) {
+      // ✅ CRITICAL FIX #4: Only auto-submit ONCE
+      if (remaining === 0 && !submitting && !hasAutoSubmittedRef.current) {
+        hasAutoSubmittedRef.current = true;
         console.log('⏰ Time expired - auto-submitting');
-        clearInterval(interval); // ✅ Clear interval first
-        handleSubmit(true); // Pass true for auto-submit
+        clearInterval(interval);
+        handleSubmit(true);
       }
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [attemptId, startTime, assessment?.timeLimitMinutes, submitting, handleSubmit, timeRemaining]);
+  }, [attemptId, startTime, assessment?.timeLimitMinutes, submitting, handleSubmit]); 
+  // ✅ REMOVED timeRemaining from dependencies
 
-  // ✅ FIXED: Display countdown timer
+  // ✅ Display countdown timer
   const timeDisplay = () => {
     if (timeRemaining === null) return '--:--';
     
