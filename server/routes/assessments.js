@@ -906,14 +906,15 @@ router.post('/:identifier/start', async (req, res) => {
     const assessment = assessmentResult.rows[0];
     const timeLimitMinutes = assessment.time_limit_minutes || 10;
 
-    // ✅ Auto-close any expired in-progress attempts
+    console.log(`⏰ Time limit for assessment ${assessment.id}: ${timeLimitMinutes} minutes`);
+
+    // Auto-close expired attempts
     await client.query(
       `UPDATE assessment_attempts
        SET completed_at = NOW(),
            status = 'completed',
            passed = false,
-           score = 0,
-           updated_at = NOW()
+           score = 0
        WHERE user_id = $1 
          AND assessment_id = $2 
          AND status = 'in-progress'
@@ -921,10 +922,9 @@ router.post('/:identifier/start', async (req, res) => {
       [req.user.id, assessment.id, timeLimitMinutes]
     );
 
-    // ✅ Check for VALID (non-expired) in-progress attempts
+    // Check for valid attempts
     const existingAttempt = await client.query(
-      `SELECT id, started_at,
-              started_at + (interval '1 minute' * $3) as expires_at
+      `SELECT id, started_at
        FROM assessment_attempts
        WHERE user_id = $1 
          AND assessment_id = $2 
@@ -936,16 +936,24 @@ router.post('/:identifier/start', async (req, res) => {
     );
 
     if (existingAttempt.rows.length > 0) {
+      const existingStartedAt = existingAttempt.rows[0].started_at;
+      const existingExpiresAt = new Date(
+        new Date(existingStartedAt).getTime() + timeLimitMinutes * 60 * 1000
+      );
+
       await client.query('ROLLBACK');
+      
+      console.log(`ℹ️ Resuming attempt ${existingAttempt.rows[0].id}, expires at ${existingExpiresAt.toISOString()}`);
+      
       return res.status(409).json({ 
         message: 'You already have an in-progress attempt for this assessment',
         attemptId: existingAttempt.rows[0].id,
-        startedAt: existingAttempt.rows[0].started_at,
-        expiresAt: existingAttempt.rows[0].expires_at // ✅ Include expiry
+        startedAt: existingStartedAt,
+        expiresAt: existingExpiresAt.toISOString()
       });
     }
 
-    // Get max attempt number
+    // Get attempt number
     const attemptCountResult = await client.query(
       `SELECT COALESCE(MAX(attempt_number), 0) as max_attempt
        FROM assessment_attempts
@@ -974,20 +982,21 @@ router.post('/:identifier/start', async (req, res) => {
     await client.query('COMMIT');
 
     const attempt = attemptResult.rows[0];
+    
+    // ✅ CRITICAL: Calculate expiry time
+    const startedAt = new Date(attempt.started_at);
+    const expiresAt = new Date(startedAt.getTime() + timeLimitMinutes * 60 * 1000);
 
-    // ✅ CRITICAL: Calculate expiry on server
-    const expiresAt = new Date(
-      new Date(attempt.started_at).getTime() + 
-      timeLimitMinutes * 60 * 1000
-    );
-
-    console.log(`✅ Assessment attempt started: User ${req.user.id}, Assessment ${assessment.id}, Attempt #${attempt.attempt_number}, Expires: ${expiresAt.toISOString()}`);
+    console.log(`✅ New attempt ${attempt.id}:`);
+    console.log(`   Started: ${startedAt.toISOString()}`);
+    console.log(`   Expires: ${expiresAt.toISOString()}`);
+    console.log(`   Time limit: ${timeLimitMinutes} minutes`);
 
     res.json({
       attemptId: attempt.id,
       attemptNumber: attempt.attempt_number,
       startedAt: attempt.started_at,
-      expiresAt: expiresAt.toISOString() // ✅ Server-calculated expiry
+      expiresAt: expiresAt.toISOString() // ✅ Must be ISO string
     });
   } catch (err) {
     await client.query('ROLLBACK');
@@ -1000,6 +1009,138 @@ router.post('/:identifier/start', async (req, res) => {
     client.release();
   }
 });
+
+// router.post('/:identifier/start', async (req, res) => {
+//   const client = await pool.connect();
+  
+//   try {
+//     await client.query('BEGIN');
+
+//     const companyId = req.companyId;
+//     const { identifier } = req.params;
+    
+//     const isNumericId = !isNaN(Number(identifier));
+
+//     let assessmentResult;
+
+//     if (isNumericId) {
+//       assessmentResult = await client.query(
+//         `SELECT id, assessment_key, total_points, company_id, time_limit_minutes
+//          FROM assessments 
+//          WHERE id = $1 AND active = true AND company_id = $2`,
+//         [Number(identifier), companyId]
+//       );
+//     } else {
+//       assessmentResult = await client.query(
+//         `SELECT id, assessment_key, total_points, company_id, time_limit_minutes
+//          FROM assessments 
+//          WHERE assessment_key = $1 AND active = true AND company_id = $2`,
+//         [identifier, companyId]
+//       );
+//     }
+
+//     if (assessmentResult.rows.length === 0) {
+//       await client.query('ROLLBACK');
+//       return res.status(404).json({ message: 'Assessment not found' });
+//     }
+
+//     const assessment = assessmentResult.rows[0];
+//     const timeLimitMinutes = assessment.time_limit_minutes || 10;
+
+//     // ✅ Auto-close any expired in-progress attempts
+//     await client.query(
+//       `UPDATE assessment_attempts
+//        SET completed_at = NOW(),
+//            status = 'completed',
+//            passed = false,
+//            score = 0,
+//            updated_at = NOW()
+//        WHERE user_id = $1 
+//          AND assessment_id = $2 
+//          AND status = 'in-progress'
+//          AND started_at + (interval '1 minute' * $3) < NOW()`,
+//       [req.user.id, assessment.id, timeLimitMinutes]
+//     );
+
+//     // ✅ Check for VALID (non-expired) in-progress attempts
+//     const existingAttempt = await client.query(
+//       `SELECT id, started_at,
+//               started_at + (interval '1 minute' * $3) as expires_at
+//        FROM assessment_attempts
+//        WHERE user_id = $1 
+//          AND assessment_id = $2 
+//          AND status = 'in-progress'
+//          AND started_at + (interval '1 minute' * $3) > NOW()
+//        ORDER BY started_at DESC
+//        LIMIT 1`,
+//       [req.user.id, assessment.id, timeLimitMinutes]
+//     );
+
+//     if (existingAttempt.rows.length > 0) {
+//       await client.query('ROLLBACK');
+//       return res.status(409).json({ 
+//         message: 'You already have an in-progress attempt for this assessment',
+//         attemptId: existingAttempt.rows[0].id,
+//         startedAt: existingAttempt.rows[0].started_at,
+//         expiresAt: existingAttempt.rows[0].expires_at // ✅ Include expiry
+//       });
+//     }
+
+//     // Get max attempt number
+//     const attemptCountResult = await client.query(
+//       `SELECT COALESCE(MAX(attempt_number), 0) as max_attempt
+//        FROM assessment_attempts
+//        WHERE user_id = $1 AND assessment_id = $2`,
+//       [req.user.id, assessment.id]
+//     );
+
+//     const nextAttemptNumber = parseInt(attemptCountResult.rows[0].max_attempt) + 1;
+
+//     // Create new attempt
+//     const attemptResult = await client.query(
+//       `INSERT INTO assessment_attempts 
+//        (user_id, assessment_id, assessment_key, company_id, started_at, attempt_number, total_points, status)
+//        VALUES ($1, $2, $3, $4, NOW(), $5, $6, 'in-progress')
+//        RETURNING id, started_at, attempt_number`,
+//       [
+//         req.user.id, 
+//         assessment.id, 
+//         assessment.assessment_key, 
+//         companyId, 
+//         nextAttemptNumber, 
+//         assessment.total_points
+//       ]
+//     );
+
+//     await client.query('COMMIT');
+
+//     const attempt = attemptResult.rows[0];
+
+//     // ✅ CRITICAL: Calculate expiry on server
+//     const expiresAt = new Date(
+//       new Date(attempt.started_at).getTime() + 
+//       timeLimitMinutes * 60 * 1000
+//     );
+
+//     console.log(`✅ Assessment attempt started: User ${req.user.id}, Assessment ${assessment.id}, Attempt #${attempt.attempt_number}, Expires: ${expiresAt.toISOString()}`);
+
+//     res.json({
+//       attemptId: attempt.id,
+//       attemptNumber: attempt.attempt_number,
+//       startedAt: attempt.started_at,
+//       expiresAt: expiresAt.toISOString() // ✅ Server-calculated expiry
+//     });
+//   } catch (err) {
+//     await client.query('ROLLBACK');
+//     console.error('❌ Error starting assessment:', err);
+//     res.status(500).json({ 
+//       message: 'Server error',
+//       error: process.env.NODE_ENV === 'development' ? err.message : undefined
+//     });
+//   } finally {
+//     client.release();
+//   }
+// });
 
 // Submit assessment attempt
 

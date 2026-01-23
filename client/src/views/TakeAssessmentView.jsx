@@ -95,58 +95,6 @@ const TakeAssessmentView = ({ assessmentId, onViewChange }) => {
     }
   };
 
-  // const fetchAssessment = async () => {
-  //   console.log('🚀 fetchAssessment called - VERSION 3.0');
-  //   try {
-  //     const token = localStorage.getItem('token');
-  //     const headers = { Authorization: `Bearer ${token}` };
-
-  //     // Fetch assessment details
-  //     const assessmentRes = await axios.get(`${API_URL}/assessments/${assessmentId}`, { headers });
-  //     setAssessment(assessmentRes.data);
-
-  //     // ✅ START OR RESUME ASSESSMENT ATTEMPT (HANDLES 409)
-  //     let attemptData;
-
-  //     try {
-  //       const attemptRes = await axios.post(
-  //         `${API_URL}/assessments/${assessmentId}/start`,
-  //         {},
-  //         { headers }
-  //       );
-  //       attemptData = attemptRes.data;
-  //       console.log('✅ New attempt started:', attemptData.attemptId);
-        
-  //     } catch (err) {
-  //       if (err.response?.status === 409 && err.response.data?.attemptId) {
-  //         attemptData = err.response.data;
-  //         console.log('ℹ️ Resuming existing attempt:', attemptData.attemptId);
-  //       } else {
-  //         throw err;
-  //       }
-  //     }
-
-  //     // ✅ Validate startedAt exists
-  //     if (!attemptData.startedAt) {
-  //       throw new Error('Attempt start time missing from server');
-  //     }
-
-  //     // Set attempt data
-  //     setAttemptId(attemptData.attemptId);
-  //     setStartTime(attemptData.startedAt);
-      
-  //     // ✅ CRITICAL FIX #2: DO NOT calculate timeRemaining here
-  //     // Let the timer effect handle it (single source of truth)
-  //     setTimeRemaining(null);
-      
-  //     setLoading(false);
-  //   } catch (error) {
-  //     console.error('❌ Error fetching assessment:', error);
-  //     alert('Failed to load assessment. Please try again.');
-  //     setLoading(false);
-  //   }
-  // };
-
   const handleAnswerChange = (questionId, answer) => {
     setAnswers(prev => ({
       ...prev,
@@ -233,43 +181,6 @@ const TakeAssessmentView = ({ assessmentId, onViewChange }) => {
     return () => clearInterval(interval);
   }, [attemptId, expiresAt, submitting, handleSubmit]); 
   // ✅ Changed from startTime/timeLimitMinutes to expiresAt
-
-  // ✅ CRITICAL FIX #3: Timer effect WITHOUT timeRemaining in dependencies
-  // useEffect(() => {
-  //   // ✅ Don't start timer until all data is ready
-  //   if (!attemptId || !startTime || !assessment?.timeLimitMinutes) {
-  //     return;
-  //   }
-
-  //   const startTimestamp = new Date(startTime).getTime();
-
-  //   // ✅ Guard against invalid date
-  //   if (isNaN(startTimestamp)) {
-  //     console.error('❌ Invalid start time:', startTime);
-  //     return;
-  //   }
-
-  //   console.log('⏱️ Starting countdown timer');
-
-  //   const interval = setInterval(() => {
-  //     const elapsedSeconds = Math.floor((Date.now() - startTimestamp) / 1000);
-  //     const totalSeconds = assessment.timeLimitMinutes * 60;
-  //     const remaining = Math.max(0, totalSeconds - elapsedSeconds);
-
-  //     setTimeRemaining(remaining);
-
-  //     // ✅ CRITICAL FIX #4: Only auto-submit ONCE
-  //     if (remaining === 0 && !submitting && !hasAutoSubmittedRef.current) {
-  //       hasAutoSubmittedRef.current = true;
-  //       console.log('⏰ Time expired - auto-submitting');
-  //       clearInterval(interval);
-  //       handleSubmit(true);
-  //     }
-  //   }, 1000);
-
-  //   return () => clearInterval(interval);
-  // }, [attemptId, startTime, assessment?.timeLimitMinutes, submitting, handleSubmit]); 
-  // // ✅ REMOVED timeRemaining from dependencies
 
   // ✅ Display countdown timer
   const timeDisplay = () => {
