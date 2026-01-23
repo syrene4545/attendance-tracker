@@ -18,24 +18,28 @@ const TakeAssessmentView = ({ assessmentId, onViewChange }) => {
   const [attemptId, setAttemptId] = useState(null);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [answers, setAnswers] = useState({});
-  const [expiresAt, setExpiresAt] = useState(null); // ✅ NEW: Server's expiry time
+  const [expiresAt, setExpiresAt] = useState(null);
   const [timeRemaining, setTimeRemaining] = useState(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   
   // ✅ CRITICAL: Prevent multiple auto-submits
   const hasAutoSubmittedRef = useRef(false);
+  
+  // ✅ CRITICAL FIX: Atomic state guard to prevent race condition
+  const attemptReadyRef = useRef(false);
 
   useEffect(() => {
     // Reset all state when starting a new assessment
     setAttemptId(null);
     setCurrentQuestionIndex(0);
     setAnswers({});
-    setExpiresAt(null); // ✅ Reset expiry time
+    setExpiresAt(null);
     setTimeRemaining(null);
     setLoading(true);
     setSubmitting(false);
     hasAutoSubmittedRef.current = false;
+    attemptReadyRef.current = false; // ✅ Reset ready flag
 
     if (assessmentId) {
       fetchAssessment();
@@ -43,7 +47,7 @@ const TakeAssessmentView = ({ assessmentId, onViewChange }) => {
   }, [assessmentId]);
 
   const fetchAssessment = async () => {
-    console.log('🚀 fetchAssessment called - VERSION 4.0');
+    console.log('🚀 fetchAssessment called - VERSION 5.0 FINAL');
     try {
       const token = localStorage.getItem('token');
       const headers = { Authorization: `Bearer ${token}` };
@@ -73,36 +77,39 @@ const TakeAssessmentView = ({ assessmentId, onViewChange }) => {
         }
       }
 
-      // ✅ DEBUG: Log attempt data
-      console.log('📦 Attempt data received:', {
-        attemptId: attemptData.attemptId,
-        startedAt: attemptData.startedAt,
-        expiresAt: attemptData.expiresAt,
-        timeLimitMinutes: assessmentRes.data.timeLimitMinutes
-      });
-
       // ✅ Validate required data
       if (!attemptData.expiresAt) {
         throw new Error('Expiry time missing from server response');
       }
 
-      // ✅ Calculate and log remaining time
+      // ✅ Calculate remaining time
       const now = Date.now();
       const expiryTime = new Date(attemptData.expiresAt).getTime();
       const remainingMs = expiryTime - now;
       const remainingSec = Math.floor(remainingMs / 1000);
       
       console.log('⏰ Time calculation:', {
-        now: new Date(now).toISOString(),
+        attemptId: attemptData.attemptId,
         expiresAt: attemptData.expiresAt,
-        remainingMs,
         remainingSec
       });
 
-      // Set attempt data
+      // ✅ Guard against already-expired attempts (shouldn't happen but safety net)
+      if (remainingSec <= 0) {
+        console.error('❌ Attempt already expired on load - this should not happen');
+        alert('This assessment has expired. Please try again.');
+        setLoading(false);
+        return;
+      }
+
+      // ✅ CRITICAL: Set state atomically, then mark as ready
       setAttemptId(attemptData.attemptId);
-      setExpiresAt(attemptData.expiresAt); // ✅ Set server's expiry time
-      setTimeRemaining(null); // Timer will initialize it
+      setExpiresAt(attemptData.expiresAt);
+      setTimeRemaining(null);
+      
+      // ✅ CRITICAL: Only after BOTH are set, mark attempt as ready
+      attemptReadyRef.current = true;
+      console.log('✅ Attempt state fully initialized');
       
       setLoading(false);
     } catch (error) {
@@ -119,7 +126,6 @@ const TakeAssessmentView = ({ assessmentId, onViewChange }) => {
     }));
   };
 
-  // ✅ Define handleSubmit with useCallback
   const handleSubmit = useCallback(async (isAutoSubmit = false) => {
     if (!attemptId) {
       if (!isAutoSubmit) {
@@ -161,30 +167,30 @@ const TakeAssessmentView = ({ assessmentId, onViewChange }) => {
     }
   }, [answers, assessment, attemptId, onViewChange]);
 
-  // ✅ FIXED: Timer effect with proper guards
+  // ✅ FIXED: Timer effect with atomic state guard
   useEffect(() => {
-    // ✅ CRITICAL GUARD: Don't start timer until expiresAt is ready
-    if (!attemptId) {
-      console.log('⏸️ Timer waiting for attemptId');
+    // ✅ CRITICAL GUARD #1: Don't start until attempt is fully ready
+    if (!attemptReadyRef.current) {
+      console.log('⏸️ Timer blocked – attempt not fully initialized');
       return;
     }
-    
-    if (!expiresAt) {
-      console.log('⏸️ Timer waiting for expiresAt');
+
+    // ✅ CRITICAL GUARD #2: Verify required state exists
+    if (!attemptId || !expiresAt) {
+      console.log('⏸️ Timer waiting for complete state');
       return;
     }
 
     const expiryTimestamp = new Date(expiresAt).getTime();
 
-    // ✅ Guard against invalid date
     if (isNaN(expiryTimestamp)) {
       console.error('❌ Invalid expiry time:', expiresAt);
       return;
     }
 
     console.log('⏱️ Starting countdown timer');
-    console.log('   Expires at:', new Date(expiryTimestamp).toISOString());
-    console.log('   Current time:', new Date().toISOString());
+    console.log('   Attempt:', attemptId);
+    console.log('   Expires:', new Date(expiryTimestamp).toISOString());
 
     const interval = setInterval(() => {
       const now = Date.now();
@@ -192,8 +198,19 @@ const TakeAssessmentView = ({ assessmentId, onViewChange }) => {
 
       setTimeRemaining(remaining);
 
-      // ✅ CRITICAL: One-shot auto-submit protection
-      if (remaining === 0 && !submitting && !hasAutoSubmittedRef.current) {
+      // ✅ Auto-submit when time expires
+      if (remaining === 0) {
+        // ✅ CRITICAL GUARD #3: Prevent instant submit on mount
+        if (timeRemaining === null) {
+          console.log('🛑 Prevented instant auto-submit on mount');
+          return;
+        }
+
+        // ✅ CRITICAL GUARD #4: One-shot protection
+        if (hasAutoSubmittedRef.current) {
+          return;
+        }
+
         hasAutoSubmittedRef.current = true;
         console.log('⏰ Time expired - auto-submitting (one-time only)');
         clearInterval(interval);
@@ -205,10 +222,8 @@ const TakeAssessmentView = ({ assessmentId, onViewChange }) => {
       console.log('🛑 Timer cleanup');
       clearInterval(interval);
     };
-  }, [attemptId, expiresAt, submitting, handleSubmit]); 
-  // ✅ Dependencies: attemptId, expiresAt (NOT timeRemaining)
+  }, [attemptId, expiresAt, timeRemaining, submitting, handleSubmit]);
 
-  // ✅ Display countdown timer
   const timeDisplay = () => {
     if (timeRemaining === null) return '--:--';
     
