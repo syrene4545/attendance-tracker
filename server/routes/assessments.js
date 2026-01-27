@@ -923,43 +923,82 @@ router.post('/:identifier/start', async (req, res) => {
     );
 
     // Check for valid attempts
+
+    // Check for valid attempts - LET POSTGRES CALCULATE
     const existingAttempt = await client.query(
-      `SELECT id, started_at
-       FROM assessment_attempts
-       WHERE user_id = $1 
-         AND assessment_id = $2 
-         AND status = 'in-progress'
-         AND started_at + (interval '1 minute' * $3) > NOW()
-       ORDER BY started_at DESC
-       LIMIT 1`,
+      `SELECT 
+        id,
+        started_at,
+        (started_at + ($3 || ' minutes')::INTERVAL) AS expires_at,
+        GREATEST(
+          FLOOR(EXTRACT(EPOCH FROM (
+            (started_at + ($3 || ' minutes')::INTERVAL) - NOW()
+          ))),
+          0
+        )::INTEGER AS remaining_seconds
+      FROM assessment_attempts
+      WHERE user_id = $1 
+        AND assessment_id = $2 
+        AND status = 'in-progress'
+        AND (started_at + ($3 || ' minutes')::INTERVAL) > NOW()
+      ORDER BY started_at DESC
+      LIMIT 1`,
       [req.user.id, assessment.id, timeLimitMinutes]
     );
 
-    // In /start route - for existing attempts (409 response)
-
     if (existingAttempt.rows.length > 0) {
-      const existingStartedAt = existingAttempt.rows[0].started_at;
-      const existingExpiresAt = new Date(
-        new Date(existingStartedAt).getTime() + timeLimitMinutes * 60 * 1000
-      );
+      const existing = existingAttempt.rows[0];
       
-      // ✅ Calculate remaining time for resumed attempt
-      const now = new Date();
-      const remainingMs = existingExpiresAt - now;
-      const remainingSeconds = Math.max(0, Math.floor(remainingMs / 1000));
-
       await client.query('ROLLBACK');
       
-      console.log(`ℹ️ Resuming attempt ${existingAttempt.rows[0].id}, ${remainingSeconds}s remaining`);
+      console.log(`ℹ️ Resuming attempt ${existing.id}, ${existing.remaining_seconds}s remaining`);
       
       return res.status(409).json({ 
         message: 'You already have an in-progress attempt for this assessment',
-        attemptId: existingAttempt.rows[0].id,
-        startedAt: existingStartedAt,
-        expiresAt: existingExpiresAt.toISOString(),
-        remainingSeconds // ✅ NEW
+        attemptId: existing.id,
+        startedAt: existing.started_at,
+        expiresAt: existing.expires_at,
+        remainingSeconds: existing.remaining_seconds // ✅ From Postgres
       });
     }
+
+    // const existingAttempt = await client.query(
+    //   `SELECT id, started_at
+    //    FROM assessment_attempts
+    //    WHERE user_id = $1 
+    //      AND assessment_id = $2 
+    //      AND status = 'in-progress'
+    //      AND started_at + (interval '1 minute' * $3) > NOW()
+    //    ORDER BY started_at DESC
+    //    LIMIT 1`,
+    //   [req.user.id, assessment.id, timeLimitMinutes]
+    // );
+
+    // // In /start route - for existing attempts (409 response)
+
+    // if (existingAttempt.rows.length > 0) {
+    //   const existingStartedAt = existingAttempt.rows[0].started_at;
+    //   const existingExpiresAt = new Date(
+    //     new Date(existingStartedAt).getTime() + timeLimitMinutes * 60 * 1000
+    //   );
+      
+    //   // ✅ Calculate remaining time for resumed attempt
+    //   const now = new Date();
+    //   const remainingMs = existingExpiresAt - now;
+    //   const remainingSeconds = Math.max(0, Math.floor(remainingMs / 1000));
+
+    //   await client.query('ROLLBACK');
+      
+    //   console.log(`ℹ️ Resuming attempt ${existingAttempt.rows[0].id}, ${remainingSeconds}s remaining`);
+      
+    //   return res.status(409).json({ 
+    //     message: 'You already have an in-progress attempt for this assessment',
+    //     attemptId: existingAttempt.rows[0].id,
+    //     startedAt: existingStartedAt,
+    //     expiresAt: existingExpiresAt.toISOString(),
+    //     remainingSeconds // ✅ NEW
+    //   });
+    // }
 
     // if (existingAttempt.rows.length > 0) {
     //   const existingStartedAt = existingAttempt.rows[0].started_at;
@@ -990,48 +1029,95 @@ router.post('/:identifier/start', async (req, res) => {
     const nextAttemptNumber = parseInt(attemptCountResult.rows[0].max_attempt) + 1;
 
     // Create new attempt
+
+    // In server/routes/assessments.js - POST /:identifier/start
+
+    // Create new attempt - LET POSTGRES CALCULATE EVERYTHING
     const attemptResult = await client.query(
       `INSERT INTO assessment_attempts 
-       (user_id, assessment_id, assessment_key, company_id, started_at, attempt_number, total_points, status)
-       VALUES ($1, $2, $3, $4, NOW(), $5, $6, 'in-progress')
-       RETURNING id, started_at, attempt_number`,
+      (user_id, assessment_id, assessment_key, company_id, started_at, attempt_number, total_points, status)
+      VALUES ($1, $2, $3, $4, NOW(), $5, $6, 'in-progress')
+      RETURNING 
+        id,
+        started_at,
+        (started_at + ($7 || ' minutes')::INTERVAL) AS expires_at,
+        GREATEST(
+          FLOOR(EXTRACT(EPOCH FROM (
+            (started_at + ($7 || ' minutes')::INTERVAL) - NOW()
+          ))),
+          0
+        )::INTEGER AS remaining_seconds,
+        attempt_number`,
       [
         req.user.id, 
         assessment.id, 
         assessment.assessment_key, 
         companyId, 
         nextAttemptNumber, 
-        assessment.total_points
+        assessment.total_points,
+        timeLimitMinutes // ✅ Pass time limit for calculation
       ]
     );
 
     await client.query('COMMIT');
 
     const attempt = attemptResult.rows[0];
-    
-    // ✅ CRITICAL: Calculate expiry time
-    const startedAt = new Date(attempt.started_at);
-    const expiresAt = new Date(startedAt.getTime() + timeLimitMinutes * 60 * 1000);
-
-    // ✅ CRITICAL: Calculate remaining time on SERVER
-    const now = new Date();
-    const remainingMs = expiresAt - now;
-    const remainingSeconds = Math.max(0, Math.floor(remainingMs / 1000));
 
     console.log(`✅ New attempt ${attempt.id}:`);
-    console.log(`   Started: ${startedAt.toISOString()}`);
-    console.log(`   Expires: ${expiresAt.toISOString()}`);
-    console.log(`   Time limit: ${timeLimitMinutes} minutes`);
-    console.log(`   Server time now: ${now.toISOString()}`);
-    console.log(`   Remaining: ${remainingSeconds} seconds`);
-   
+    console.log(`   Started: ${attempt.started_at}`);
+    console.log(`   Expires: ${attempt.expires_at}`);
+    console.log(`   Remaining: ${attempt.remaining_seconds} seconds`);
+
     res.json({
       attemptId: attempt.id,
       attemptNumber: attempt.attempt_number,
       startedAt: attempt.started_at,
-      expiresAt: expiresAt.toISOString(), // ✅ Must be ISO string
-      remainingSeconds // ✅ NEW: Server-calculated remaining time
+      expiresAt: attempt.expires_at,
+      remainingSeconds: attempt.remaining_seconds // ✅ Calculated by Postgres
     });
+    
+    // const attemptResult = await client.query(
+    //   `INSERT INTO assessment_attempts 
+    //    (user_id, assessment_id, assessment_key, company_id, started_at, attempt_number, total_points, status)
+    //    VALUES ($1, $2, $3, $4, NOW(), $5, $6, 'in-progress')
+    //    RETURNING id, started_at, attempt_number`,
+    //   [
+    //     req.user.id, 
+    //     assessment.id, 
+    //     assessment.assessment_key, 
+    //     companyId, 
+    //     nextAttemptNumber, 
+    //     assessment.total_points
+    //   ]
+    // );
+
+    // await client.query('COMMIT');
+
+    // const attempt = attemptResult.rows[0];
+    
+    // // ✅ CRITICAL: Calculate expiry time
+    // const startedAt = new Date(attempt.started_at);
+    // const expiresAt = new Date(startedAt.getTime() + timeLimitMinutes * 60 * 1000);
+
+    // // ✅ CRITICAL: Calculate remaining time on SERVER
+    // const now = new Date();
+    // const remainingMs = expiresAt - now;
+    // const remainingSeconds = Math.max(0, Math.floor(remainingMs / 1000));
+
+    // console.log(`✅ New attempt ${attempt.id}:`);
+    // console.log(`   Started: ${startedAt.toISOString()}`);
+    // console.log(`   Expires: ${expiresAt.toISOString()}`);
+    // console.log(`   Time limit: ${timeLimitMinutes} minutes`);
+    // console.log(`   Server time now: ${now.toISOString()}`);
+    // console.log(`   Remaining: ${remainingSeconds} seconds`);
+   
+    // res.json({
+    //   attemptId: attempt.id,
+    //   attemptNumber: attempt.attempt_number,
+    //   startedAt: attempt.started_at,
+    //   expiresAt: expiresAt.toISOString(), // ✅ Must be ISO string
+    //   remainingSeconds // ✅ NEW: Server-calculated remaining time
+    // });
   } catch (err) {
     await client.query('ROLLBACK');
     console.error('❌ Error starting assessment:', err);
