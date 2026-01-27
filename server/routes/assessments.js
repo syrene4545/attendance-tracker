@@ -935,23 +935,49 @@ router.post('/:identifier/start', async (req, res) => {
       [req.user.id, assessment.id, timeLimitMinutes]
     );
 
+    // In /start route - for existing attempts (409 response)
+
     if (existingAttempt.rows.length > 0) {
       const existingStartedAt = existingAttempt.rows[0].started_at;
       const existingExpiresAt = new Date(
         new Date(existingStartedAt).getTime() + timeLimitMinutes * 60 * 1000
       );
+      
+      // ✅ Calculate remaining time for resumed attempt
+      const now = new Date();
+      const remainingMs = existingExpiresAt - now;
+      const remainingSeconds = Math.max(0, Math.floor(remainingMs / 1000));
 
       await client.query('ROLLBACK');
       
-      console.log(`ℹ️ Resuming attempt ${existingAttempt.rows[0].id}, expires at ${existingExpiresAt.toISOString()}`);
+      console.log(`ℹ️ Resuming attempt ${existingAttempt.rows[0].id}, ${remainingSeconds}s remaining`);
       
       return res.status(409).json({ 
         message: 'You already have an in-progress attempt for this assessment',
         attemptId: existingAttempt.rows[0].id,
         startedAt: existingStartedAt,
-        expiresAt: existingExpiresAt.toISOString()
+        expiresAt: existingExpiresAt.toISOString(),
+        remainingSeconds // ✅ NEW
       });
     }
+
+    // if (existingAttempt.rows.length > 0) {
+    //   const existingStartedAt = existingAttempt.rows[0].started_at;
+    //   const existingExpiresAt = new Date(
+    //     new Date(existingStartedAt).getTime() + timeLimitMinutes * 60 * 1000
+    //   );
+
+    //   await client.query('ROLLBACK');
+      
+    //   console.log(`ℹ️ Resuming attempt ${existingAttempt.rows[0].id}, expires at ${existingExpiresAt.toISOString()}`);
+      
+    //   return res.status(409).json({ 
+    //     message: 'You already have an in-progress attempt for this assessment',
+    //     attemptId: existingAttempt.rows[0].id,
+    //     startedAt: existingStartedAt,
+    //     expiresAt: existingExpiresAt.toISOString()
+    //   });
+    // }
 
     // Get attempt number
     const attemptCountResult = await client.query(
@@ -987,16 +1013,24 @@ router.post('/:identifier/start', async (req, res) => {
     const startedAt = new Date(attempt.started_at);
     const expiresAt = new Date(startedAt.getTime() + timeLimitMinutes * 60 * 1000);
 
+    // ✅ CRITICAL: Calculate remaining time on SERVER
+    const now = new Date();
+    const remainingMs = expiresAt - now;
+    const remainingSeconds = Math.max(0, Math.floor(remainingMs / 1000));
+
     console.log(`✅ New attempt ${attempt.id}:`);
     console.log(`   Started: ${startedAt.toISOString()}`);
     console.log(`   Expires: ${expiresAt.toISOString()}`);
     console.log(`   Time limit: ${timeLimitMinutes} minutes`);
-
+    console.log(`   Server time now: ${now.toISOString()}`);
+    console.log(`   Remaining: ${remainingSeconds} seconds`);
+   
     res.json({
       attemptId: attempt.id,
       attemptNumber: attempt.attempt_number,
       startedAt: attempt.started_at,
-      expiresAt: expiresAt.toISOString() // ✅ Must be ISO string
+      expiresAt: expiresAt.toISOString(), // ✅ Must be ISO string
+      remainingSeconds // ✅ NEW: Server-calculated remaining time
     });
   } catch (err) {
     await client.query('ROLLBACK');

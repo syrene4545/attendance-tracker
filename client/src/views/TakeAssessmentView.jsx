@@ -91,25 +91,36 @@ const TakeAssessmentView = ({ assessmentId, onViewChange }) => {
       console.log('⏰ Time calculation:', {
         attemptId: attemptData.attemptId,
         expiresAt: attemptData.expiresAt,
-        remainingSec
+        remainingSeconds: attemptData.remainingSeconds // ✅ NEW
+        // remainingSec
       });
 
-      // ✅ Guard against already-expired attempts (shouldn't happen but safety net)
-      if (remainingSec <= 0) {
-        console.error('❌ Attempt already expired on load - this should not happen');
+      // ✅ Guard against already-expired attempts
+      if (attemptData.remainingSeconds <= 0) {
+        console.error('❌ Attempt already expired on load');
         alert('This assessment has expired. Please try again.');
         setLoading(false);
         return;
       }
 
+      // ✅ Guard against already-expired attempts (shouldn't happen but safety net)
+      // if (remainingSec <= 0) {
+      //   console.error('❌ Attempt already expired on load - this should not happen');
+      //   alert('This assessment has expired. Please try again.');
+      //   setLoading(false);
+      //   return;
+      // }
+
       // ✅ CRITICAL: Set state atomically, then mark as ready
       setAttemptId(attemptData.attemptId);
       setExpiresAt(attemptData.expiresAt);
-      setTimeRemaining(null);
+      setTimeRemaining(attemptData.remainingSeconds); // ✅ Use server's calculation
+      // setTimeRemaining(null);
       
       // ✅ CRITICAL: Only after BOTH are set, mark attempt as ready
       attemptReadyRef.current = true;
-      console.log('✅ Attempt state fully initialized');
+      console.log(`✅ Attempt initialized with ${attemptData.remainingSeconds}s remaining`);
+      // console.log('✅ Attempt state fully initialized');
       
       setLoading(false);
     } catch (error) {
@@ -168,61 +179,102 @@ const TakeAssessmentView = ({ assessmentId, onViewChange }) => {
   }, [answers, assessment, attemptId, onViewChange]);
 
   // ✅ FIXED: Timer effect with atomic state guard
+
+  // In timer useEffect - SIMPLIFIED
+
   useEffect(() => {
-    // ✅ CRITICAL GUARD #1: Don't start until attempt is fully ready
     if (!attemptReadyRef.current) {
       console.log('⏸️ Timer blocked – attempt not fully initialized');
       return;
     }
 
-    // ✅ CRITICAL GUARD #2: Verify required state exists
-    if (!attemptId || !expiresAt) {
+    if (!attemptId || timeRemaining === null) {
       console.log('⏸️ Timer waiting for complete state');
       return;
     }
 
-    const expiryTimestamp = new Date(expiresAt).getTime();
-
-    if (isNaN(expiryTimestamp)) {
-      console.error('❌ Invalid expiry time:', expiresAt);
-      return;
-    }
-
-    console.log('⏱️ Starting countdown timer');
-    console.log('   Attempt:', attemptId);
-    console.log('   Expires:', new Date(expiryTimestamp).toISOString());
+    console.log(`⏱️ Starting countdown from ${timeRemaining} seconds`);
 
     const interval = setInterval(() => {
-      const now = Date.now();
-      const remaining = Math.max(0, Math.floor((expiryTimestamp - now) / 1000));
-
-      setTimeRemaining(remaining);
-
-      // ✅ Auto-submit when time expires
-      if (remaining === 0) {
-        // ✅ CRITICAL GUARD #3: Prevent instant submit on mount
-        if (timeRemaining === null) {
-          console.log('🛑 Prevented instant auto-submit on mount');
-          return;
+      setTimeRemaining(prev => {
+        if (prev === null) return null;
+        
+        const newRemaining = Math.max(0, prev - 1);
+        
+        // ✅ Auto-submit when countdown reaches 0
+        if (newRemaining === 0 && prev > 0 && !hasAutoSubmittedRef.current) {
+          hasAutoSubmittedRef.current = true;
+          console.log('⏰ Time expired - auto-submitting');
+          clearInterval(interval);
+          handleSubmit(true);
         }
-
-        // ✅ CRITICAL GUARD #4: One-shot protection
-        if (hasAutoSubmittedRef.current) {
-          return;
-        }
-
-        hasAutoSubmittedRef.current = true;
-        console.log('⏰ Time expired - auto-submitting (one-time only)');
-        clearInterval(interval);
-        handleSubmit(true);
-      }
+        
+        return newRemaining;
+      });
     }, 1000);
 
     return () => {
       console.log('🛑 Timer cleanup');
       clearInterval(interval);
     };
-  }, [attemptId, expiresAt, timeRemaining, submitting, handleSubmit]);
+  }, [attemptId, timeRemaining, handleSubmit]);
+  // ✅ Removed expiresAt dependency - we countdown from server time
+
+  // useEffect(() => {
+  //   // ✅ CRITICAL GUARD #1: Don't start until attempt is fully ready
+  //   if (!attemptReadyRef.current) {
+  //     console.log('⏸️ Timer blocked – attempt not fully initialized');
+  //     return;
+  //   }
+
+  //   // ✅ CRITICAL GUARD #2: Verify required state exists
+  //   if (!attemptId || !expiresAt) {
+  //     console.log('⏸️ Timer waiting for complete state');
+  //     return;
+  //   }
+
+  //   const expiryTimestamp = new Date(expiresAt).getTime();
+
+  //   if (isNaN(expiryTimestamp)) {
+  //     console.error('❌ Invalid expiry time:', expiresAt);
+  //     return;
+  //   }
+
+  //   console.log('⏱️ Starting countdown timer');
+  //   console.log('   Attempt:', attemptId);
+  //   console.log('   Expires:', new Date(expiryTimestamp).toISOString());
+
+  //   const interval = setInterval(() => {
+  //     const now = Date.now();
+  //     const remaining = Math.max(0, Math.floor((expiryTimestamp - now) / 1000));
+
+  //     setTimeRemaining(remaining);
+
+  //     // ✅ Auto-submit when time expires
+  //     if (remaining === 0) {
+  //       // ✅ CRITICAL GUARD #3: Prevent instant submit on mount
+  //       if (timeRemaining === null) {
+  //         console.log('🛑 Prevented instant auto-submit on mount');
+  //         return;
+  //       }
+
+  //       // ✅ CRITICAL GUARD #4: One-shot protection
+  //       if (hasAutoSubmittedRef.current) {
+  //         return;
+  //       }
+
+  //       hasAutoSubmittedRef.current = true;
+  //       console.log('⏰ Time expired - auto-submitting (one-time only)');
+  //       clearInterval(interval);
+  //       handleSubmit(true);
+  //     }
+  //   }, 1000);
+
+  //   return () => {
+  //     console.log('🛑 Timer cleanup');
+  //     clearInterval(interval);
+  //   };
+  // }, [attemptId, expiresAt, timeRemaining, submitting, handleSubmit]);
 
   const timeDisplay = () => {
     if (timeRemaining === null) return '--:--';
